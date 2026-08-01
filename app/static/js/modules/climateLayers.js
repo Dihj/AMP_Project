@@ -2,18 +2,12 @@
 
 let leftClimateOverlay = null;
 let leftLegendControl = null;
-let leftFetchController = null; // Controller for Left Map
 
 let rightClimateOverlay = null;
 let rightLegendControl = null;
-let rightFetchController = null; // Controller for Right Map
-
-// --- CLEAR FUNCTIONS ---
 
 export function clearLeftClimateLayer(mapLeft) {
   if (!mapLeft) return;
-  if (leftFetchController) leftFetchController.abort();
-
   if (leftClimateOverlay && mapLeft.hasLayer(leftClimateOverlay)) {
     mapLeft.removeLayer(leftClimateOverlay);
     leftClimateOverlay = null;
@@ -26,8 +20,6 @@ export function clearLeftClimateLayer(mapLeft) {
 
 export function clearRightClimateLayer(mapRight) {
   if (!mapRight) return;
-  if (rightFetchController) rightFetchController.abort();
-
   if (rightClimateOverlay && mapRight.hasLayer(rightClimateOverlay)) {
     mapRight.removeLayer(rightClimateOverlay);
     rightClimateOverlay = null;
@@ -38,22 +30,14 @@ export function clearRightClimateLayer(mapRight) {
   }
 }
 
-// --- LEFT MAP (Temperature / Rainfall) ---
-
 export function updateLeftClimateLayer(mapLeft, parameter, timeStep, fixedScale = false) {
   if (!mapLeft) return;
 
-  // Abort previous in-flight fetch request
-  if (leftFetchController) {
-    leftFetchController.abort();
-  }
-  leftFetchController = new AbortController();
-
   const url = `/api/climate/raster?param=${parameter}&time=${timeStep}&fixed=${fixedScale}`;
 
-  fetch(url, { signal: leftFetchController.signal })
+  fetch(url)
     .then(res => {
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      if (!res.ok) throw new Error(`Server status ${res.status}`);
       return res.json();
     })
     .then(data => {
@@ -71,35 +55,22 @@ export function updateLeftClimateLayer(mapLeft, parameter, timeStep, fixedScale 
 
       if (leftLegendControl) {
         mapLeft.removeControl(leftLegendControl);
-        leftLegendControl = null;
       }
 
       leftLegendControl = createLegendControl(data, fixedScale, 'bottomleft');
       leftLegendControl.addTo(mapLeft);
     })
-    .catch(err => {
-      if (err.name === 'AbortError') return; // Ignore intentionally aborted requests
-      console.error("Error updating left map climate layer:", err);
-      clearLeftClimateLayer(mapLeft);
-    });
+    .catch(err => console.error("Left map update error:", err));
 }
-
-// --- RIGHT MAP (Active Fire Climatology) ---
 
 export function updateRightClimateLayer(mapRight, parameter = 'Fire', timeStep, fixedScale = false) {
   if (!mapRight) return;
 
-  // Abort previous in-flight fetch request
-  if (rightFetchController) {
-    rightFetchController.abort();
-  }
-  rightFetchController = new AbortController();
-
   const url = `/api/climate/raster?param=${parameter}&time=${timeStep}&fixed=${fixedScale}`;
 
-  fetch(url, { signal: rightFetchController.signal })
+  fetch(url)
     .then(res => {
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      if (!res.ok) throw new Error(`Server status ${res.status}`);
       return res.json();
     })
     .then(data => {
@@ -117,20 +88,13 @@ export function updateRightClimateLayer(mapRight, parameter = 'Fire', timeStep, 
 
       if (rightLegendControl) {
         mapRight.removeControl(rightLegendControl);
-        rightLegendControl = null;
       }
 
       rightLegendControl = createLegendControl(data, fixedScale, 'bottomright');
       rightLegendControl.addTo(mapRight);
     })
-    .catch(err => {
-      if (err.name === 'AbortError') return; // Ignore intentionally aborted requests
-      console.error("Error updating right map fire layer:", err);
-      clearRightClimateLayer(mapRight);
-    });
+    .catch(err => console.error("Right map update error:", err));
 }
-
-// --- LEGEND CONTROL BUILDER ---
 
 function createLegendControl(data, fixedScale, position) {
   const legendControl = L.control({ position: position });

@@ -4,8 +4,8 @@ export const navConfig = {
   MON: {
     icons: [
       { name: 'Temp', iconClass: 'fa-temperature-high' },
-      { name: 'Rain', iconClass: 'fa-cloud-showers-heavy' },
-      { name: 'Fire', iconClass: 'fa-fire' }
+      { name: 'Rain', iconClass: 'fa-cloud-showers-heavy' }
+     // { name: 'Fire', iconClass: 'fa-fire' }
     ],
     timeType: 'months',
     timeData: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -14,7 +14,7 @@ export const navConfig = {
     icons: [
       { name: 'Temp', iconClass: 'fa-temperature-high' },
       { name: 'Rain', iconClass: 'fa-cloud-showers-heavy' },
-      { name: 'Fire', iconClass: 'fa-fire' },
+    //  { name: 'Fire', iconClass: 'fa-fire' },
       { name: 'Wind', iconClass: 'fa-wind' },
       { name: 'NDVI', iconClass: 'fa-leaf' }
     ],

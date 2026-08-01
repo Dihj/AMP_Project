@@ -1,14 +1,16 @@
 # app/scripts/climate_calc.py
 import os
 import io
+import threading
 import numpy as np
 import xarray as xr
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+from PIL import Image
 from matplotlib.colors import LinearSegmentedColormap, Normalize
+import matplotlib
 
-# Color Maps
+# Thread lock to prevent C-level NetCDF memory corruption
+NETCDF_LOCK = threading.Lock()
+
 coulPREC_colors = [
     "#CB9362", "#DABE90", "#D2D179", "#91D47D", "#5CC247",
     "#49A136", "#287733", "#2A7E61", "#309181", "#327295",
@@ -22,7 +24,8 @@ temp_colors = [
 ]
 cmap_temp = LinearSegmentedColormap.from_list("cmap_temp", temp_colors)
 
-cmap_fire = plt.cm.YlOrRd
+fire_colors = ["#ffffcc", "#ff2a00", "#800026"]
+cmap_fire = LinearSegmentedColormap.from_list("cmap_fire", fire_colors)
 
 def generate_climate_png(parameter='Rain', time_step='Jan', fixed_scale=False, base_dir='./data'):
     file_map = {
@@ -32,52 +35,62 @@ def generate_climate_png(parameter='Rain', time_step='Jan', fixed_scale=False, b
     }
 
     if parameter not in file_map:
-        raise ValueError(f"No raster dataset configured for parameter: {parameter}")
+        raise ValueError(f"Unknown parameter: {parameter}")
 
     rel_path, var_name, colormap, unit = file_map[parameter]
     nc_path = os.path.join(base_dir, rel_path)
 
     if not os.path.exists(nc_path):
-        raise FileNotFoundError(f"NetCDF file missing at: {nc_path}")
+        raise FileNotFoundError(f"File missing: {nc_path}")
 
     month_list = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     month_idx = month_list.index(time_step) if time_step in month_list else 0
 
-    # 1. Open NetCDF safely and load values immediately into memory
-    with xr.open_dataset(nc_path, engine='netcdf4') as ds:
-        vname = var_name if var_name in ds else list(ds.data_vars)[0]
-        lats = ds['lat'].values
-        lons = ds['lon'].values
-        fill_val = ds[vname].attrs.get('_FillValue', -99.0)
+    # THREAD LOCK: Safely isolate C-library execution
+    with NETCDF_LOCK:
+        with xr.open_dataset(nc_path, engine='netcdf4') as ds:
+            vname = var_name if var_name in ds else list(ds.data_vars)[0]
+            lats = ds['lat'].values.copy()
+            lons = ds['lon'].values.copy()
+            data_all = np.array(ds[vname].values, dtype=np.float32)
 
-        # Load into memory copy to avoid file-locking during multi-threaded requests
-        data_all = ds[vname].values.copy()
-        data_slice = data_all[month_idx, :, :].copy()
+    data_slice = data_all[month_idx, :, :]
 
-    # 2. Masking
+    # Masking logic
     if parameter == 'Fire':
-        masked_slice = np.ma.masked_less_equal(data_slice, 0.0)
-        masked_all = np.ma.masked_less_equal(data_all, 0.0)
+        mask_slice = (data_slice <= 0) | np.isnan(data_slice)
+        mask_all = (data_all <= 0) | np.isnan(data_all)
     else:
-        masked_slice = np.ma.masked_invalid(np.ma.masked_equal(data_slice, fill_val))
-        masked_all = np.ma.masked_invalid(np.ma.masked_equal(data_all, fill_val))
+        mask_slice = (data_slice < -90) | np.isnan(data_slice)
+        mask_all = (data_all < -90) | np.isnan(data_all)
 
-    # 3. Calculate Bounds safely (Handle months with no data or zero variance)
-    target_mask = masked_all if fixed_scale else masked_slice
+    target_data = data_all[~mask_all] if fixed_scale else data_slice[~mask_slice]
 
-    if target_mask.count() > 0:
-        vmin = float(np.nanmin(target_mask))
-        vmax = float(np.nanmax(target_mask))
+    if len(target_data) > 0:
+        vmin = float(np.min(target_data))
+        vmax = float(np.max(target_data))
     else:
         vmin, vmax = 0.0, 1.0
 
-    # Prevent crash if vmin == vmax (e.g. all pixels are 0)
     if vmin == vmax:
         vmax = vmin + 1.0
 
     norm = Normalize(vmin=vmin, vmax=vmax)
 
-    # 4. Generate Color Legend Ticks
+    # Convert to RGBA array directly
+    norm_data = norm(data_slice)
+    rgba_image = colormap(norm_data)
+    rgba_uint8 = (rgba_image * 255).astype(np.uint8)
+    rgba_uint8[mask_slice, 3] = 0
+
+    if lats[0] < lats[-1]:
+        rgba_uint8 = np.flipud(rgba_uint8)
+
+    img = Image.fromarray(rgba_uint8, mode='RGBA')
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+
     num_steps = 5
     ticks = np.linspace(vmin, vmax, num_steps)
     legend_ticks = [
@@ -88,32 +101,10 @@ def generate_climate_png(parameter='Rain', time_step='Jan', fixed_scale=False, b
         for t in ticks
     ]
 
-    # 5. Render Transparent PNG
     bounds = [
         [float(np.min(lats)), float(np.min(lons))],
         [float(np.max(lats)), float(np.max(lons))]
     ]
 
-    fig, ax = plt.subplots(figsize=(6, 8), dpi=100)
-    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-    ax.axis('off')
+    return buf, bounds, legend_ticks, unit
 
-    origin_loc = 'upper' if lats[0] > lats[-1] else 'lower'
-    
-    try:
-        ax.imshow(
-            masked_slice,
-            cmap=colormap,
-            norm=norm,
-            origin=origin_loc,
-            interpolation='nearest'
-        )
-
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', transparent=True, bbox_inches='tight', pad_inches=0)
-        buf.seek(0)
-        return buf, bounds, legend_ticks, unit
-    finally:
-        # Guarantee figure cleanup even if an exception occurs
-        plt.close(fig)
-        
