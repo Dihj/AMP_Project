@@ -74,17 +74,19 @@
             <div class="layer-control">
               <!-- Districts Checkbox -->
               <label class="checkbox-item">
-                <input type="checkbox" id="chk-districts" class="layer-checkbox" data-layer="districts">
+                <input type="checkbox" id="chk-districts" class="layer-checkbox" data-layer="districtMdg">
                 <span><i class="fa-solid fa-map-location-dot"></i> District Boundaries</span>
               </label>
             
               <!-- Protected Areas Checkbox -->
               <label class="checkbox-item">
-                <input type="checkbox" id="chk-protected-areas" class="layer-checkbox" data-layer="protected_areas">
+                <input type="checkbox" id="chk-protected-areas" class="layer-checkbox" data-layer="PA">
                 <span><i class="fa-solid fa-tree"></i> Protected Areas</span>
               </label>
             </div>
           </div>
+
+
         </div>
       </div>
     </div>
@@ -104,12 +106,12 @@
         <div id="map-container" class="map-container">
           <div class="map-window">
             <div id="map-left" class="map-frame"></div>
-            <div class="map-overlay-title left">ECMWF / Analysis</div>
+            <div class="map-overlay-title left"> Climate - Weather </div>
           </div>
 
           <div class="map-window">
             <div id="map-right" class="map-frame"></div>
-            <div class="map-overlay-title right">GFS / Forecast</div>
+            <div class="map-overlay-title right"> Fire </div>
           </div>
         </div>
       </div>
@@ -129,7 +131,7 @@
   <!-- Leaflet Scripts -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet.sync@0.2.4/L.Map.Sync.min.js"></script>
-  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
 
 
 </body>
