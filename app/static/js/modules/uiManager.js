@@ -144,4 +144,61 @@ export function renderUI() {
   triggerResize();
 }
 
+/**
+ * Enables mouse dragging on a floating panel via a target handle element
+ * @param {HTMLElement|string} panelEl - The modal container element or selector
+ * @param {HTMLElement|string} handleEl - The header element used to grab & drag
+ */
+export function makeElementDraggable(panelEl, handleEl) {
+  const panel = typeof panelEl === 'string' ? document.querySelector(panelEl) : panelEl;
+  const handle = typeof handleEl === 'string' ? document.querySelector(handleEl) : handleEl;
 
+  if (!panel || !handle) return;
+
+  let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+
+  handle.onmousedown = dragMouseDown;
+
+  function dragMouseDown(e) {
+    // Ignore drag if user clicks the close button inside the header
+    if (e.target.closest('#close-chart-btn')) return;
+
+    e.preventDefault();
+    
+    // Get mouse initial position
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+
+    // Attach listeners to document so fast mouse movements don't detach
+    document.onmouseup = closeDragElement;
+    document.onmousemove = elementDrag;
+  }
+
+  function elementDrag(e) {
+    e.preventDefault();
+
+    // Calculate displacement
+    pos1 = pos3 - e.clientX;
+    pos2 = pos4 - e.clientY;
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+
+    // Switch positioning mode from fixed bottom/right to top/left on first drag
+    const rect = panel.getBoundingClientRect();
+    panel.style.bottom = 'auto';
+    panel.style.right = 'auto';
+    panel.style.top = (rect.top - pos2) + 'px';
+    panel.style.left = (rect.left - pos1) + 'px';
+
+    // Resize Plotly inside the container during or after drag
+    if (window.Plotly) {
+      Plotly.Plots.resize('chart-plotly-target');
+    }
+  }
+
+  function closeDragElement() {
+    // Stop moving when mouse button is released
+    document.onmouseup = null;
+    document.onmousemove = null;
+  }
+}

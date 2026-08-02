@@ -127,13 +127,19 @@
         </section>
       </div>
 
-      <!-- Chart Modal Container (Changed ID to chart-container to match mapManager.js) -->
-      <div id="chart-container" class="hidden" style="position: fixed; bottom: 20px; right: 20px; width: 480px; height: 320px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; z-index: 2000; padding: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
-        <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 5px;">
-          <span style="font-size: 12px; color: #94a3b8; font-weight: 600;">Point Climatology</span>
-          <button id="close-chart-btn" style="background: transparent; border: none; color: #ef4444; cursor: pointer; font-size: 16px;">&times;</button>
+      <!-- Chart Modal Container -->
+      <div id="chart-container" class="chart-modal hidden">
+        <!-- Header Bar: Holds Dynamic Title & Close Button -->
+        <div class="chart-modal-header">
+          <div class="chart-title-group">
+            <i class="fa-solid fa-chart-line title-icon"></i>
+            <span id="chart-modal-title" class="chart-modal-title">Climatology Overview</span>
+          </div>
+          <button id="close-chart-btn" class="chart-close-btn" title="Close Panel">&times;</button>
         </div>
-        <div id="chart-plotly-target" style="width: 100%; height: 270px;"></div>
+
+        <!-- Plotly Render Target -->
+        <div id="chart-plotly-target" class="chart-plotly-target"></div>
       </div>
 
     </main>

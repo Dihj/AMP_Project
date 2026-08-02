@@ -3,24 +3,27 @@
 export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
   const months = data.months;
 
-  // 0. Determine dynamic title based on location type (Polygon vs Point)
+  // 1. Determine title text for the HTML Modal Header
   let titleText = meta.name || data.name;
-  
   if (!titleText) {
     if (data.point) {
-      titleText = `Climatology at (${data.point.lat}°,${data.point.lon}°)`;
+      titleText = `Climatology (${data.point.lat}°, ${data.point.lon}°)`;
     } else {
-      titleText = 'Climatology';
+      titleText = 'Climatology Overview';
     }
-  } else if (!titleText.startsWith('Climatology')) {
-    titleText = `Climatology: ${titleText}`;
   }
 
-  // 1. Fire Density (Area Trace behind bars)
+  // Update HTML header text directly
+  const headerTitleEl = document.getElementById('chart-modal-title');
+  if (headerTitleEl) {
+    headerTitleEl.textContent = titleText;
+  }
+
+  // 2. Traces
   const fireTrace = {
     x: months,
     y: data.fire,
-    name: 'Fire Counts',
+    name: 'Fires',
     type: 'scatter',
     mode: 'lines',
     fill: 'tozeroy',
@@ -29,11 +32,10 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
     yaxis: 'y3'
   };
 
-  // 2. Rainfall (Bar Trace)
   const rainTrace = {
     x: months,
     y: data.rain,
-    name: 'Rainfall (mm)',
+    name: 'Rain (mm)',
     type: 'bar',
     marker: {
       color: 'rgba(56, 189, 248, 0.75)',
@@ -42,26 +44,22 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
     yaxis: 'y1'
   };
 
-  // 3. Temperature (Line Trace)
   const tempTrace = {
     x: months,
     y: data.temp,
-    name: 'Temperature (°C)',
+    name: 'Temp (°C)',
     type: 'scatter',
     mode: 'lines+markers',
-    line: { color: '#f97316', width: 3, shape: 'spline' },
-    marker: { size: 6, color: '#f97316' },
+    line: { color: '#f97316', width: 2.5, shape: 'spline' },
+    marker: { size: 5, color: '#f97316' },
     yaxis: 'y2'
   };
 
+  // 3. Layout (Notice: title is omitted here to let HTML header manage it)
   const layout = {
-    title: {
-      text: titleText,
-      font: { color: '#f8fafc', size: 13 }
-    },
     paper_bgcolor: 'transparent',
     plot_bgcolor: 'transparent',
-    margin: { l: 45, r: 50, t: 35, b: 35 },
+    margin: { l: 40, r: 45, t: 15, b: 30 }, // Tight margins so plot fills space
     legend: {
       orientation: 'h',
       x: 0,
@@ -72,14 +70,12 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
       tickfont: { color: '#cbd5e1', size: 10 },
       gridcolor: 'rgba(255, 255, 255, 0.05)'
     },
-    // Left Y-Axis: Rainfall
     yaxis: {
       title: { text: 'Rain (mm)', font: { color: '#38bdf8', size: 10 } },
       tickfont: { color: '#38bdf8', size: 10 },
       gridcolor: 'rgba(255, 255, 255, 0.05)',
       zeroline: false
     },
-    // Right Y-Axis 1: Temperature
     yaxis2: {
       title: { text: 'Temp (°C)', font: { color: '#f97316', size: 10 } },
       tickfont: { color: '#f97316', size: 10 },
@@ -87,7 +83,6 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
       side: 'right',
       zeroline: false
     },
-    // Right Y-Axis 2: Fire Density (Overlay)
     yaxis3: {
       title: { text: 'Fires/cell', font: { color: '#ef4444', size: 10 } },
       tickfont: { color: '#ef4444', size: 10 },
@@ -101,6 +96,5 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
 
   const config = { responsive: true, displayModeBar: false };
 
-  Plotly.newPlot(containerId, [fireTrace, rainTrace, tempTrace], layout, config);
+  Plotly.newPlot('chart-plotly-target', [fireTrace, rainTrace, tempTrace], layout, config);
 }
-

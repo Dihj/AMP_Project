@@ -12,6 +12,13 @@ import {
 } from './modules/mapManager.js';
 import { state, renderUI } from './modules/uiManager.js';
 
+import { makeElementDraggable } from './modules/uiManager.js';
+
+document.addEventListener('DOMContentLoaded', () => {
+    makeElementDraggable('#chart-container', '.chart-modal-header');
+    
+})
+
 document.addEventListener("DOMContentLoaded", function () {
 
   // DOM Handles

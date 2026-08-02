@@ -356,3 +356,101 @@ html, body {
   -ms-interpolation-mode: nearest-neighbor !important; /* IE/Legacy */
 }
 
+/* Floating Ombrothermic Chart Panel */
+.chart-modal {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 520px;
+  height: 360px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(15, 23, 42, 0.92); /* Dark slate with high readability */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  z-index: 2000;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+/* Header Section */
+.chart-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.chart-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chart-title-group .title-icon {
+  color: #38bdf8; /* Accent sky blue */
+  font-size: 13px;
+}
+
+.chart-modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f1f5f9;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 420px;
+}
+
+/* Close Button */
+.chart-close-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  color: #94a3b8;
+  font-size: 18px;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.chart-close-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+/* Plotly Canvas Wrapper */
+.chart-plotly-target {
+  width: 100%;
+  flex-grow: 1; /* Takes all available height below header */
+  min-height: 0; /* Prevents overflow inside flex box */
+}
+
+/* Header to show grab cursor */
+.chart-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  cursor: grab; /* Shows hand grab icon */
+  user-select: none; /* Prevents text selection while dragging */
+}
+
+.chart-modal-header:active {
+  cursor: grabbing; /* Shows closed hand icon while dragging */
+}
