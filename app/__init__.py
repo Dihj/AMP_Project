@@ -6,6 +6,7 @@ from flask import Flask, render_template, jsonify
 from app.config import Config
 from app.scripts.spatial_calc import get_geojson_from_shapefile
 from app.scripts.climate_calc import DATA_CACHE, preload_climate_data
+from app.api.climate import climate_bp
 
 def create_app():
     app = Flask(__name__)

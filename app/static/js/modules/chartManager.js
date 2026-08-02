@@ -1,7 +1,20 @@
 // static/js/modules/chartManager.js
 
-export function renderOmbrothermicFireChart(containerId, data) {
+export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
   const months = data.months;
+
+  // 0. Determine dynamic title based on location type (Polygon vs Point)
+  let titleText = meta.name || data.name;
+  
+  if (!titleText) {
+    if (data.point) {
+      titleText = `Climatology at (${data.point.lat}°,${data.point.lon}°)`;
+    } else {
+      titleText = 'Climatology';
+    }
+  } else if (!titleText.startsWith('Climatology')) {
+    titleText = `Climatology: ${titleText}`;
+  }
 
   // 1. Fire Density (Area Trace behind bars)
   const fireTrace = {
@@ -43,7 +56,7 @@ export function renderOmbrothermicFireChart(containerId, data) {
 
   const layout = {
     title: {
-      text: `Climatology at (${data.point.lat}°, ${data.point.lon}°)`,
+      text: titleText,
       font: { color: '#f8fafc', size: 13 }
     },
     paper_bgcolor: 'transparent',
@@ -90,3 +103,4 @@ export function renderOmbrothermicFireChart(containerId, data) {
 
   Plotly.newPlot(containerId, [fireTrace, rainTrace, tempTrace], layout, config);
 }
+

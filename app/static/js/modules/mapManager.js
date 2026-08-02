@@ -14,13 +14,14 @@ const boundaryLayers = {
   PA: null
 };
 
-export function getMapLeft() {
-  return mapLeft;
-}
+// Store raw GeoJSON feature collections for spatial point-in-polygon queries
+const boundaryGeoData = {
+  districtMdg: null,
+  PA: null
+};
 
-export function getMapRight() {
-  return mapRight;
-}
+export function getMapLeft() { return mapLeft; }
+export function getMapRight() { return mapRight; }
 
 export function initMapsOnce(initialOpacity = 0.75, fireVisible = true) {
   const initialCenter = [-18.7, 46.8];
@@ -28,7 +29,6 @@ export function initMapsOnce(initialOpacity = 0.75, fireVisible = true) {
   const darkTileUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
   const attrib = '&copy; CARTO';
 
-  // 1. Initialize Base Maps
   mapLeft = L.map('map-left', { zoomControl: false, attributionControl: false }).setView(initialCenter, initialZoom);
   leftTileLayer = L.tileLayer(darkTileUrl, { maxZoom: 18, attribution: attrib, opacity: initialOpacity }).addTo(mapLeft);
 
@@ -36,56 +36,28 @@ export function initMapsOnce(initialOpacity = 0.75, fireVisible = true) {
   rightTileLayer = L.tileLayer(darkTileUrl, { maxZoom: 18, attribution: attrib, opacity: initialOpacity }).addTo(mapRight);
   L.control.zoom({ position: 'topright' }).addTo(mapRight);
 
-  // 2. Fire Layer setup on Right Map
   fireLayerRight = L.layerGroup();
-  if (fireVisible) {
-    fireLayerRight.addTo(mapRight);
-  }
-  loadActiveFires24h(); 
-  /*
-  const mockFirePoints = [[-18.5, 46.5], [-18.9, 47.1], [-19.2, 46.2], [-17.8, 48.1]];
-  mockFirePoints.forEach(coords => {
-    L.circleMarker(coords, {
-      radius: 8, fillColor: '#ef4444', color: '#f87171', weight: 2, opacity: 1, fillOpacity: 0.8
-    }).addTo(fireLayerRight);
-  });
-    */
-  //if (fireVisible) fireLayerRight.addTo(mapRight);
+  if (fireVisible) fireLayerRight.addTo(mapRight);
+  loadActiveFires24h();
 
-  // 3. Sync dual maps
   if (typeof mapLeft.sync === 'function') {
     mapLeft.sync(mapRight, { syncCursor: true });
     mapRight.sync(mapLeft, { syncCursor: true });
   }
 
-  // 4. Attach Point Climatology Click Events
   setupMapClickEvents(mapLeft, mapRight);
-
-  // 5. Initial load of Spatial Overlay (Delegate to climateLayers)
   updateRasterLayer('rr', 'Jan');
 }
 
-/**
- * Delegates spatial raster updates to climateLayers module
- * to ensure legends and layer cleanup are handled in one place.
- */
 export function updateRasterLayer(parameter = 'Rain', timeStep = 'Jan', fixedScale = false) {
   if (!mapLeft) return;
-
   const paramMap = { 'rr': 'Rain', 'tmean': 'Temp', 'fire': 'Fire' };
   const param = paramMap[parameter] || parameter;
-
-  // Delegate directly to climateLayers module
   updateLeftClimateLayer(mapLeft, param, timeStep, fixedScale);
 }
 
-/**
- * Utility to clear left map overlays
- */
 export function clearRasterLayer() {
-  if (mapLeft) {
-    clearLeftClimateLayer(mapLeft);
-  }
+  if (mapLeft) clearLeftClimateLayer(mapLeft);
 }
 
 export function triggerResize() {
@@ -102,11 +74,8 @@ export function setTileOpacity(opacity) {
 
 export function toggleFireLayer(visible) {
   if (!mapRight || !fireLayerRight) return;
-  if (visible) {
-    mapRight.addLayer(fireLayerRight);
-  } else {
-    mapRight.removeLayer(fireLayerRight);
-  }
+  if (visible) mapRight.addLayer(fireLayerRight);
+  else mapRight.removeLayer(fireLayerRight);
 }
 
 export function toggleBoundaryLayer(selectedKey, isChecked) {
@@ -130,6 +99,8 @@ export function toggleBoundaryLayer(selectedKey, isChecked) {
       return res.json();
     })
     .then(geoJsonData => {
+      boundaryGeoData[selectedKey] = geoJsonData;
+
       const layerStyle = (selectedKey === 'PA')
         ? { color: '#22c55e', weight: 1.5, fillColor: '#22c55e', fillOpacity: 0.25 }
         : { color: '#38bdf8', weight: 1.2, fillColor: 'transparent' };
@@ -141,7 +112,56 @@ export function toggleBoundaryLayer(selectedKey, isChecked) {
     .catch(err => console.error(`Error loading boundary ${selectedKey}:`, err));
 }
 
+/**
+ * Extracts property name from shapefile feature properties safely
+ */
+function getFeatureName(props) {
+  if (!props) return "Selected Area";
+  return props.NAME_2 || props.NAME_1 || props.NAME_0 || props.nom || props.NAME || props.nam || props.site_name || props.ADM2_EN || "Selected Boundary";
+}
 
+/**
+ * Utility function to check point in polygon using Leaflet geometry
+ */
+/*
+function findIntersectedFeature(latlng) {
+  // Priority order: District shapefile takes precedence over Protected Areas (PA)
+  const layerKeys = ['districtMdg', 'PA'];
+
+  for (const key of layerKeys) {
+    const geoData = boundaryGeoData[key];
+    const layer = boundaryLayers[key];
+
+    if (geoData && mapRight && mapRight.hasLayer(layer)) {
+      const point = [latlng.lng, latlng.lat];
+
+      for (const feature of geoData.features) {
+        // Wrap feature into temporary Leaflet GeoJSON layer to test containment
+        const tempGeoLayer = L.geoJSON(feature);
+        const results = leafletPip.gis ? leafletPip.pointInLayer(point, tempGeoLayer) : [];
+        
+        // Manual fallback check using Leaflet bounds if leafletPip isn't imported
+        let isInside = false;
+        tempGeoLayer.eachLayer(l => {
+          if (l.getBounds && l.getBounds().contains(latlng)) {
+            isInside = true;
+          }
+        });
+
+        if (isInside) {
+          return {
+            key: key,
+            name: getFeatureName(feature.properties),
+            geometry: feature.geometry
+          };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+*/
 
 export function setupMapClickEvents(mapLeft, mapRight) {
   if (!mapLeft || !mapRight) return;
@@ -154,9 +174,7 @@ export function setupMapClickEvents(mapLeft, mapRight) {
   }
 
   const handleMapClick = (e) => {
-    // Dynamic import to check active navigation state
     import('./uiManager.js').then(uiModule => {
-      // ONLY trigger the Ombrothermic chart if we are currently on the MON tab
       if (uiModule.state.currentNav !== 'MON') return;
 
       const lat = e.latlng.lat.toFixed(4);
@@ -164,21 +182,42 @@ export function setupMapClickEvents(mapLeft, mapRight) {
 
       if (chartDrawer) chartDrawer.classList.remove('hidden');
 
-      fetch(`/api/climate/timeseries?lat=${lat}&lon=${lon}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.error) return;
-          renderOmbrothermicFireChart('chart-plotly-target', data, { lat, lon });
+      // Check if click intersects an active boundary feature (District takes priority over PA)
+      const hitFeature = findIntersectedFeature(e.latlng);
+
+      if (hitFeature) {
+        // Perform spatial extraction over polygon
+        fetch('/api/climate/timeseries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            geometry: hitFeature.geometry,
+            name: hitFeature.name
+          })
         })
-        .catch(err => console.error("Error fetching timeseries:", err));
+          .then(res => res.json())
+          .then(data => {
+            if (data.error) return;
+            renderOmbrothermicFireChart('chart-plotly-target', data, { name: data.name });
+          })
+          .catch(err => console.error("Error fetching polygon timeseries:", err));
+
+      } else {
+        // Point extraction fallback
+        fetch(`/api/climate/timeseries?lat=${lat}&lon=${lon}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.error) return;
+            renderOmbrothermicFireChart('chart-plotly-target', data, { lat, lon, name: data.name });
+          })
+          .catch(err => console.error("Error fetching point timeseries:", err));
+      }
     });
   };
 
   mapLeft.on('click', handleMapClick);
   mapRight.on('click', handleMapClick);
 }
-
-// for updated fire 24 hours from firms
 
 export function loadActiveFires24h() {
   if (!fireLayerRight) return;
@@ -214,4 +253,71 @@ export function loadActiveFires24h() {
       });
     })
     .catch(err => console.error("Error loading active fires:", err));
+}
+
+/**
+ * Custom Ray-Casting Point-in-Polygon check (Native JS, no external libraries needed)
+ */
+function isPointInPolygon(latlng, feature) {
+  if (!feature || !feature.geometry) return false;
+
+  const lat = latlng.lat;
+  const lng = latlng.lng;
+  const geom = feature.geometry;
+
+  // Extract ring arrays for both Polygon and MultiPolygon
+  let polygonRings = [];
+  if (geom.type === 'Polygon') {
+    polygonRings = [geom.coordinates];
+  } else if (geom.type === 'MultiPolygon') {
+    polygonRings = geom.coordinates;
+  }
+
+  for (const poly of polygonRings) {
+    // Outer boundary ring is the first array in poly
+    const outerRing = poly[0];
+    let inside = false;
+
+    for (let i = 0, j = outerRing.length - 1; i < outerRing.length; j = i++) {
+      const xi = outerRing[i][0], yi = outerRing[i][1]; // lon, lat
+      const xj = outerRing[j][0], yj = outerRing[j][1]; // lon, lat
+
+      const intersect = ((yi > lat) !== (yj > lat)) &&
+        (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+
+      if (intersect) inside = !inside;
+    }
+
+    if (inside) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Finds the intersected boundary feature on map click
+ * District layer takes priority over Protected Areas (PA)
+ */
+function findIntersectedFeature(latlng) {
+  const layerKeys = ['districtMdg', 'PA'];
+
+  for (const key of layerKeys) {
+    const geoData = boundaryGeoData[key];
+    const layer = boundaryLayers[key];
+
+    // Check if the layer is active on the map
+    if (geoData && mapRight && mapRight.hasLayer(layer)) {
+      for (const feature of geoData.features) {
+        if (isPointInPolygon(latlng, feature)) {
+          return {
+            key: key,
+            name: getFeatureName(feature.properties),
+            geometry: feature.geometry
+          };
+        }
+      }
+    }
+  }
+
+  return null;
 }

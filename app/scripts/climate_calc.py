@@ -37,7 +37,7 @@ def preload_climate_data(base_dir='./data'):
     file_map = {
         'Rain': ('netcdf/climatology/RR_clim.nc', 'rfe'),
         'Temp': ('netcdf/climatology/TMEAN_clim.nc', 'tmean'),
-        'Fire': ('netcdf/climatology/FIRE_clim.nc', 'fire_density')
+        'Fire': ('netcdf/climatology/FIRE_climV2.nc', 'fire_density')
     }
     
     with NETCDF_LOCK:
