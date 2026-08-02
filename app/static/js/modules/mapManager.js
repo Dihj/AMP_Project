@@ -38,14 +38,19 @@ export function initMapsOnce(initialOpacity = 0.75, fireVisible = true) {
 
   // 2. Fire Layer setup on Right Map
   fireLayerRight = L.layerGroup();
+  if (fireVisible) {
+    fireLayerRight.addTo(mapRight);
+  }
+  loadActiveFires24h(); 
+  /*
   const mockFirePoints = [[-18.5, 46.5], [-18.9, 47.1], [-19.2, 46.2], [-17.8, 48.1]];
   mockFirePoints.forEach(coords => {
     L.circleMarker(coords, {
       radius: 8, fillColor: '#ef4444', color: '#f87171', weight: 2, opacity: 1, fillOpacity: 0.8
     }).addTo(fireLayerRight);
   });
-
-  if (fireVisible) fireLayerRight.addTo(mapRight);
+    */
+  //if (fireVisible) fireLayerRight.addTo(mapRight);
 
   // 3. Sync dual maps
   if (typeof mapLeft.sync === 'function') {
@@ -173,3 +178,40 @@ export function setupMapClickEvents(mapLeft, mapRight) {
   mapRight.on('click', handleMapClick);
 }
 
+// for updated fire 24 hours from firms
+
+export function loadActiveFires24h() {
+  if (!fireLayerRight) return;
+
+  fetch('/api/active-fires-24h')
+    .then(res => res.json())
+    .then(data => {
+      if (!data.fires || !Array.isArray(data.fires)) return;
+
+      fireLayerRight.clearLayers();
+
+      data.fires.forEach(fire => {
+        const marker = L.circleMarker([fire.lat, fire.lon], {
+          radius: 5,
+          fillColor: '#ef4444',
+          color: '#f87171',
+          weight: 1.5,
+          opacity: 1,
+          fillOpacity: 0.8
+        });
+
+        marker.bindPopup(`
+          <div style="font-family: sans-serif; font-size: 11px;">
+            <strong style="color: #ef4444;">Active Fire (MODIS 24h)</strong><br/>
+            <b>Lat/Lon:</b> ${fire.lat}, ${fire.lon}<br/>
+            <b>Date/Time:</b> ${fire.acq_time} UTC<br/>
+            <b>Brightness:</b> ${fire.brightness} K<br/>
+            <b>Confidence:</b> ${fire.confidence}
+          </div>
+        `);
+
+        marker.addTo(fireLayerRight);
+      });
+    })
+    .catch(err => console.error("Error loading active fires:", err));
+}

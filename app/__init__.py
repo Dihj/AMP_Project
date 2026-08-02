@@ -7,7 +7,6 @@ from app.config import Config
 from app.scripts.spatial_calc import get_geojson_from_shapefile
 from app.scripts.climate_calc import DATA_CACHE, preload_climate_data
 
-
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -20,12 +19,14 @@ def create_app():
     with app.app_context():
         preload_climate_data()
 
-    # Import and register blueprints
+    # Import and register Flask Blueprints
     from app.api.spatial import spatial_bp
     from app.api.climate import climate_bp
+    from app.api.firms import firms_bp  # <-- Imported Flask Blueprint
     
     app.register_blueprint(spatial_bp)
     app.register_blueprint(climate_bp)
+    app.register_blueprint(firms_bp)    # <-- Registered with Flask
 
     # Serve GeoJSON from /data/shapefile/
     @app.route('/api/shapefile/<layer_key>')
@@ -40,4 +41,3 @@ def create_app():
             return jsonify({'error': str(e)}), 400
 
     return app
-
