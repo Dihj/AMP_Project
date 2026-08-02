@@ -1,7 +1,15 @@
 // static/js/main.js
 
 import { navConfig } from './modules/config.js';
-import { initMapsOnce, triggerResize, setTileOpacity, toggleFireLayer, toggleBoundaryLayer } from './modules/mapManager.js';
+import { 
+  initMapsOnce, 
+  triggerResize, 
+  setTileOpacity, 
+  toggleFireLayer, 
+  toggleBoundaryLayer, 
+  updateRasterLayer ,
+  clearRasterLayer
+} from './modules/mapManager.js';
 import { state, renderUI } from './modules/uiManager.js';
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -13,6 +21,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const opacitySlider = document.getElementById('opacity-slider');
   const opacityVal = document.getElementById('opacity-val');
   const toggleFireBtn = document.getElementById('toggle-fire-btn');
+  const timePillsContainer = document.getElementById('time-pills'); // Target parent container
 
   // 1. Navigation Button Click Listeners (MON, FOR, About)
   navBtns.forEach(btn => {
@@ -28,9 +37,15 @@ document.addEventListener("DOMContentLoaded", function () {
         state.selectedTime = navConfig[state.currentNav].timeData[0];
       } else {
         state.currentNav = 'About';
+        clearRasterLayer();
       }
 
       renderUI();
+      
+      // Update spatial map raster for the selected tab/time
+      if (state.currentNav !== 'About') {
+        updateRasterLayer(state.selectedIcon, state.selectedTime);
+      }
     });
   });
 
@@ -74,9 +89,31 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 
+  // 6. Dynamic Time Pill Listener (Event Delegation)
+  // Listen on the parent container because time pills are dynamically rendered by renderUI()
+  if (timePillsContainer) {
+    timePillsContainer.addEventListener('click', (e) => {
+      const pill = e.target.closest('.time-pill');
+      if (pill) {
+        const selectedTime = pill.dataset.time || pill.innerText.trim();
+        state.selectedTime = selectedTime;
+        
+        // Pass current active icon/parameter and selected time step to the raster update function
+        const activeParam = state.selectedIcon || 'rr';
+        updateRasterLayer(activeParam, selectedTime);
+      }
+    });
+  }
+
   // ==========================================
   // BOOT SEQUENCE
   // ==========================================
   initMapsOnce(state.currentOpacity, state.fireVisible);
   renderUI();
+
+  // Load initial spatial map colors on startup
+  if (state.selectedIcon && state.selectedTime) {
+    updateRasterLayer(state.selectedIcon, state.selectedTime);
+  }
 });
+

@@ -8,9 +8,13 @@ from PIL import Image
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 import matplotlib
 
-# Thread lock to prevent C-level NetCDF memory corruption
+# Thread lock to prevent C-library execution conflicts
 NETCDF_LOCK = threading.Lock()
 
+# 1. DEFINE GLOBAL DATA CACHE (This fixes your ImportError)
+DATA_CACHE = {}
+
+# Define Colormaps
 coulPREC_colors = [
     "#CB9362", "#DABE90", "#D2D179", "#91D47D", "#5CC247",
     "#49A136", "#287733", "#2A7E61", "#309181", "#327295",
@@ -27,32 +31,58 @@ cmap_temp = LinearSegmentedColormap.from_list("cmap_temp", temp_colors)
 fire_colors = ["#ffffcc", "#ff2a00", "#800026"]
 cmap_fire = LinearSegmentedColormap.from_list("cmap_fire", fire_colors)
 
-def generate_climate_png(parameter='Rain', time_step='Jan', fixed_scale=False, base_dir='./data'):
+# 2. PRELOAD FUNCTION FOR RAM CACHING
+def preload_climate_data(base_dir='./data'):
+    """Preloads NetCDF datasets into memory once at startup."""
     file_map = {
-        'Rain': ('netcdf/climatology/RR_clim.nc', 'rfe', cmap_precip, 'mm'),
-        'Temp': ('netcdf/climatology/TMEAN_clim.nc', 'tmean', cmap_temp, '°C'),
-        'Fire': ('netcdf/climatology/FIRE_clim.nc', 'fire_density', cmap_fire, 'fires/cell')
+        'Rain': ('netcdf/climatology/RR_clim.nc', 'rfe'),
+        'Temp': ('netcdf/climatology/TMEAN_clim.nc', 'tmean'),
+        'Fire': ('netcdf/climatology/FIRE_clim.nc', 'fire_density')
+    }
+    
+    with NETCDF_LOCK:
+        for param, (rel_path, var_name) in file_map.items():
+            nc_path = os.path.join(base_dir, rel_path)
+            if os.path.exists(nc_path):
+                try:
+                    with xr.open_dataset(nc_path, engine='netcdf4') as ds:
+                        vname = var_name if var_name in ds else list(ds.data_vars)[0]
+                        DATA_CACHE[param] = {
+                            'lats': ds['lat'].values.copy(),
+                            'lons': ds['lon'].values.copy(),
+                            'data': np.array(ds[vname].values, dtype=np.float32)
+                        }
+                        print(f"[Climate Calc] Preloaded {param} successfully.")
+                except Exception as e:
+                    print(f"[Climate Calc] Error preloading {param}: {e}")
+
+# 3. RASTER PNG GENERATOR
+def generate_climate_png(parameter='Rain', time_step='Jan', fixed_scale=False, base_dir='./data'):
+    colormaps = {
+        'Rain': (cmap_precip, 'mm'),
+        'Temp': (cmap_temp, '°C'),
+        'Fire': (cmap_fire, 'fires/cell')
     }
 
-    if parameter not in file_map:
+    if parameter not in colormaps:
         raise ValueError(f"Unknown parameter: {parameter}")
 
-    rel_path, var_name, colormap, unit = file_map[parameter]
-    nc_path = os.path.join(base_dir, rel_path)
+    colormap, unit = colormaps[parameter]
 
-    if not os.path.exists(nc_path):
-        raise FileNotFoundError(f"File missing: {nc_path}")
+    # Preload into cache if not loaded yet
+    if parameter not in DATA_CACHE:
+        preload_climate_data(base_dir)
+
+    if parameter not in DATA_CACHE:
+        raise FileNotFoundError(f"Data for {parameter} not available in cache.")
+
+    cached = DATA_CACHE[parameter]
+    lats = cached['lats']
+    lons = cached['lons']
+    data_all = cached['data']
 
     month_list = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     month_idx = month_list.index(time_step) if time_step in month_list else 0
-
-    # THREAD LOCK: Safely isolate C-library execution
-    with NETCDF_LOCK:
-        with xr.open_dataset(nc_path, engine='netcdf4') as ds:
-            vname = var_name if var_name in ds else list(ds.data_vars)[0]
-            lats = ds['lat'].values.copy()
-            lons = ds['lon'].values.copy()
-            data_all = np.array(ds[vname].values, dtype=np.float32)
 
     data_slice = data_all[month_idx, :, :]
 
@@ -77,7 +107,7 @@ def generate_climate_png(parameter='Rain', time_step='Jan', fixed_scale=False, b
 
     norm = Normalize(vmin=vmin, vmax=vmax)
 
-    # Convert to RGBA array directly
+    # Convert array directly to RGBA
     norm_data = norm(data_slice)
     rgba_image = colormap(norm_data)
     rgba_uint8 = (rgba_image * 255).astype(np.uint8)

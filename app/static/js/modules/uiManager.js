@@ -27,10 +27,20 @@ export function renderUI() {
   const aboutViewport = document.getElementById('about-viewport');
   const timeBarLabel = document.getElementById('time-bar-label');
   const timePills = document.getElementById('time-pills');
+  const chartDrawer = document.getElementById('chart-container');
+
 
   // Fetch Map Handles
   const mapLeft = getMapLeft();
   const mapRight = getMapRight();
+
+  if (state.currentNav !== 'MON' && chartDrawer) {
+    chartDrawer.classList.add('hidden'); 
+    const chartTarget = document.getElementById('chart-plotly-target'); 
+    if (chartTarget && window.Plotly) {
+        window.Plotly.purge(chartTarget);
+    }
+  }
 
   // 1. Handle About Tab
   if (state.currentNav === 'About') {
@@ -44,13 +54,24 @@ export function renderUI() {
     return;
   }
 
-  // 2. Handle MON / FOR Tabs
+  // 2. Handle MON / FOR Tabs UI setup
   if (sidebar) sidebar.classList.remove('hidden');
   if (textDrawer) textDrawer.classList.remove('hidden');
   if (appViewport) appViewport.classList.remove('hidden');
   if (aboutViewport) aboutViewport.classList.add('hidden');
 
   const config = navConfig[state.currentNav];
+
+  // Validate that selectedTime belongs to the active tab configuration
+  if (!config.timeData.includes(state.selectedTime)) {
+    state.selectedTime = config.timeData[0];
+  }
+
+  // Validate selectedIcon for the active tab
+  const validIconNames = config.icons.map(i => i.name);
+  if (!validIconNames.includes(state.selectedIcon)) {
+    state.selectedIcon = validIconNames[0];
+  }
 
   if (drawerTitle) {
     drawerTitle.innerText = `${state.selectedIcon} Layer Controls`;
@@ -66,7 +87,6 @@ export function renderUI() {
       iconBtn.title = item.name;
 
       iconBtn.addEventListener('click', () => {
-        // Switching icons changes left map layer (Temp or Rain)
         state.selectedIcon = item.name;
         if (textDrawer) textDrawer.classList.remove('hidden');
         renderUI();
@@ -76,9 +96,9 @@ export function renderUI() {
     });
   }
 
-  // Render Month Selection Pills
+  // Render Time/Pill Selection Bar
   if (timeBarLabel) {
-    timeBarLabel.innerText = config.timeType === 'months' ? 'Select Month:' : 'Select Day:';
+    timeBarLabel.innerText = config.timeType === 'months' ? 'Select Month:' : 'Select Period:';
   }
 
   if (timePills) {
@@ -90,28 +110,38 @@ export function renderUI() {
 
       pillBtn.addEventListener('click', () => {
         state.selectedTime = item;
-        renderUI(); // Updates BOTH left and right maps for the new month
+        renderUI(); // Re-render maps with selected time step
       });
 
       timePills.appendChild(pillBtn);
     });
   }
 
-  // 3. Dual-Panel Side-by-Side Rendering Logic
+  // 3. Dual-Panel Layer Rendering Logic
+  // Clear existing layers first to avoid orphaned overlays
+  clearLeftClimateLayer(mapLeft);
+  clearRightClimateLayer(mapRight);
+
   if (state.currentNav === 'MON') {
-    // Determine left map parameter (defaults to Temp if Fire or unknown icon is clicked)
     const leftParam = (state.selectedIcon === 'Rain') ? 'Rain' : 'Temp';
-
-    // Update Left Map (Climate: Temperature or Rainfall)
+    
+    // Render Left Map (Climate Raster) & Right Map (Wildfire Climatology)
     updateLeftClimateLayer(mapLeft, leftParam, state.selectedTime, state.fixedScale);
-
-    // Update Right Map (Wildfire Climatology - Always Active)
     updateRightClimateLayer(mapRight, 'Fire', state.selectedTime, state.fixedScale);
-  } else {
-    // Clear both maps when leaving MON mode
-    clearLeftClimateLayer(mapLeft);
+
+  } else if (state.currentNav === 'FOR') {
+    // Forecast Mode Logic:
+    // If FOR uses climate parameters (e.g., Rain/Temp forecasts)
+    //const leftParam = (state.selectedIcon === 'Rain') ? 'Rain' : 'Temp';
+    //updateLeftClimateLayer(mapLeft, leftParam, state.selectedTime, state.fixedScale);
+    // If Right map in FOR also displays Fire forecast or a specialized layer:
+    //updateRightClimateLayer(mapRight, 'Fire', state.selectedTime, state.fixedScale);
+    clearLeftClimateLayer(mapLeft); 
     clearRightClimateLayer(mapRight);
-  }
+
+  } 
 
   triggerResize();
 }
+
+

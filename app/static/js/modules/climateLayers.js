@@ -6,26 +6,58 @@ let leftLegendControl = null;
 let rightClimateOverlay = null;
 let rightLegendControl = null;
 
+// Track active fetch requests so we can cancel them on tab switches
+let leftFetchController = null;
+let rightFetchController = null;
+
 export function clearLeftClimateLayer(mapLeft) {
+  // Abort any pending network request immediately
+  if (leftFetchController) {
+    leftFetchController.abort();
+    leftFetchController = null;
+  }
+
   if (!mapLeft) return;
-  if (leftClimateOverlay && mapLeft.hasLayer(leftClimateOverlay)) {
-    mapLeft.removeLayer(leftClimateOverlay);
+
+  if (leftClimateOverlay) {
+    try { mapLeft.removeLayer(leftClimateOverlay); } catch(e){}
     leftClimateOverlay = null;
   }
+
+  // Deep cleanup: remove any L.ImageOverlay elements attached to mapLeft
+  mapLeft.eachLayer((layer) => {
+    if (layer instanceof L.ImageOverlay) {
+      mapLeft.removeLayer(layer);
+    }
+  });
+
   if (leftLegendControl) {
-    mapLeft.removeControl(leftLegendControl);
+    try { mapLeft.removeControl(leftLegendControl); } catch(e){}
     leftLegendControl = null;
   }
 }
 
 export function clearRightClimateLayer(mapRight) {
+  if (rightFetchController) {
+    rightFetchController.abort();
+    rightFetchController = null;
+  }
+
   if (!mapRight) return;
-  if (rightClimateOverlay && mapRight.hasLayer(rightClimateOverlay)) {
-    mapRight.removeLayer(rightClimateOverlay);
+
+  if (rightClimateOverlay) {
+    try { mapRight.removeLayer(rightClimateOverlay); } catch(e){}
     rightClimateOverlay = null;
   }
+
+  mapRight.eachLayer((layer) => {
+    if (layer instanceof L.ImageOverlay) {
+      mapRight.removeLayer(layer);
+    }
+  });
+
   if (rightLegendControl) {
-    mapRight.removeControl(rightLegendControl);
+    try { mapRight.removeControl(rightLegendControl); } catch(e){}
     rightLegendControl = null;
   }
 }
@@ -33,9 +65,18 @@ export function clearRightClimateLayer(mapRight) {
 export function updateLeftClimateLayer(mapLeft, parameter, timeStep, fixedScale = false) {
   if (!mapLeft) return;
 
-  const url = `/api/climate/raster?param=${parameter}&time=${timeStep}&fixed=${fixedScale}`;
+  // Abort any previously running request before starting a new one
+  if (leftFetchController) {
+    leftFetchController.abort();
+  }
+  leftFetchController = new AbortController();
 
-  fetch(url)
+  const paramMap = { 'rr': 'Rain', 'tmean': 'Temp', 'fire': 'Fire' };
+  const param = paramMap[parameter] || parameter;
+
+  const url = `/api/climate/raster?param=${param}&time=${timeStep}&fixed=${fixedScale}`;
+
+  fetch(url, { signal: leftFetchController.signal })
     .then(res => {
       if (!res.ok) throw new Error(`Server status ${res.status}`);
       return res.json();
@@ -43,32 +84,48 @@ export function updateLeftClimateLayer(mapLeft, parameter, timeStep, fixedScale 
     .then(data => {
       if (!data.imageUrl || !data.bounds) return;
 
-      if (leftClimateOverlay && mapLeft.hasLayer(leftClimateOverlay)) {
-        mapLeft.removeLayer(leftClimateOverlay);
-      }
+      // Import state dynamically to verify active tab before rendering
+      import('./uiManager.js').then(uiModule => {
+        // SAFETY GUARD: If the user navigated away from MON while fetching, do NOT draw
+        if (uiModule.state.currentNav !== 'MON') {
+          clearLeftClimateLayer(mapLeft);
+          return;
+        }
 
-      leftClimateOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
-        opacity: 0.8,
-        interactive: false
+        clearLeftClimateLayer(mapLeft);
+
+        leftClimateOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
+          opacity: 0.8,
+          interactive: false,
+          zIndex: 400
+        });
+        leftClimateOverlay.addTo(mapLeft);
+
+        leftLegendControl = createLegendControl(data, fixedScale, 'bottomleft');
+        leftLegendControl.addTo(mapLeft);
       });
-      leftClimateOverlay.addTo(mapLeft);
-
-      if (leftLegendControl) {
-        mapLeft.removeControl(leftLegendControl);
-      }
-
-      leftLegendControl = createLegendControl(data, fixedScale, 'bottomleft');
-      leftLegendControl.addTo(mapLeft);
     })
-    .catch(err => console.error("Left map update error:", err));
+    .catch(err => {
+      if (err.name !== 'AbortError') {
+        console.error("Left map update error:", err);
+      }
+    });
 }
 
 export function updateRightClimateLayer(mapRight, parameter = 'Fire', timeStep, fixedScale = false) {
   if (!mapRight) return;
 
-  const url = `/api/climate/raster?param=${parameter}&time=${timeStep}&fixed=${fixedScale}`;
+  if (rightFetchController) {
+    rightFetchController.abort();
+  }
+  rightFetchController = new AbortController();
 
-  fetch(url)
+  const paramMap = { 'rr': 'Rain', 'tmean': 'Temp', 'fire': 'Fire' };
+  const param = paramMap[parameter] || parameter;
+
+  const url = `/api/climate/raster?param=${param}&time=${timeStep}&fixed=${fixedScale}`;
+
+  fetch(url, { signal: rightFetchController.signal })
     .then(res => {
       if (!res.ok) throw new Error(`Server status ${res.status}`);
       return res.json();
@@ -76,24 +133,30 @@ export function updateRightClimateLayer(mapRight, parameter = 'Fire', timeStep, 
     .then(data => {
       if (!data.imageUrl || !data.bounds) return;
 
-      if (rightClimateOverlay && mapRight.hasLayer(rightClimateOverlay)) {
-        mapRight.removeLayer(rightClimateOverlay);
-      }
+      import('./uiManager.js').then(uiModule => {
+        if (uiModule.state.currentNav !== 'MON') {
+          clearRightClimateLayer(mapRight);
+          return;
+        }
 
-      rightClimateOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
-        opacity: 0.8,
-        interactive: false
+        clearRightClimateLayer(mapRight);
+
+        rightClimateOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
+          opacity: 0.8,
+          interactive: false,
+          zIndex: 400
+        });
+        rightClimateOverlay.addTo(mapRight);
+
+        rightLegendControl = createLegendControl(data, fixedScale, 'bottomright');
+        rightLegendControl.addTo(mapRight);
       });
-      rightClimateOverlay.addTo(mapRight);
-
-      if (rightLegendControl) {
-        mapRight.removeControl(rightLegendControl);
-      }
-
-      rightLegendControl = createLegendControl(data, fixedScale, 'bottomright');
-      rightLegendControl.addTo(mapRight);
     })
-    .catch(err => console.error("Right map update error:", err));
+    .catch(err => {
+      if (err.name !== 'AbortError') {
+        console.error("Right map update error:", err);
+      }
+    });
 }
 
 function createLegendControl(data, fixedScale, position) {

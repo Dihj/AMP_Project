@@ -9,6 +9,9 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /> 
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+  <!-- Plotly JS (Load in head so it is ready before main.js) -->
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
 <body>
 
@@ -67,6 +70,7 @@
             <input type="range" id="opacity-slider" min="0" max="100" value="75" class="slider">
             <span id="opacity-val" class="val-text">75%</span>
           </div>
+
           <!-- Layer Control Section inside #text-drawer -->
           <div class="panel-section">
             <h5 class="section-subtitle">Boundary Overlays (Right Map)</h5>
@@ -86,7 +90,6 @@
             </div>
           </div>
 
-
         </div>
       </div>
     </div>
@@ -96,7 +99,7 @@
 
       <!-- VIEWPORT 1: MON & FOR MAP DASHBOARD (ACTIVE BY DEFAULT) -->
       <div id="app-viewport" class="viewport">
-        <!-- Time Selector Pill Bar (Notice 'hidden' is removed so it shows immediately) -->
+        <!-- Time Selector Pill Bar -->
         <div id="time-bar" class="time-bar">
           <span class="time-label" id="time-bar-label">Select Time:</span>
           <div id="time-pills" class="time-pills"></div>
@@ -124,6 +127,15 @@
         </section>
       </div>
 
+      <!-- Chart Modal Container (Changed ID to chart-container to match mapManager.js) -->
+      <div id="chart-container" class="hidden" style="position: fixed; bottom: 20px; right: 20px; width: 480px; height: 320px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; z-index: 2000; padding: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 5px;">
+          <span style="font-size: 12px; color: #94a3b8; font-weight: 600;">Point Climatology</span>
+          <button id="close-chart-btn" style="background: transparent; border: none; color: #ef4444; cursor: pointer; font-size: 16px;">&times;</button>
+        </div>
+        <div id="chart-plotly-target" style="width: 100%; height: 270px;"></div>
+      </div>
+
     </main>
 
   </div>
@@ -133,6 +145,6 @@
   <script src="https://cdn.jsdelivr.net/npm/leaflet.sync@0.2.4/L.Map.Sync.min.js"></script>
   <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
 
-
 </body>
 </html>
+
