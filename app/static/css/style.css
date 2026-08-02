@@ -348,3 +348,11 @@ html, body {
   height: 16px;
   cursor: pointer;
 }
+
+/* Force Leaflet image overlays to render sharp pixel grid instead of blurring on zoom */
+.leaflet-image-layer {
+  image-rendering: pixelated !important;            /* Chrome, Edge, Safari */
+  image-rendering: crisp-edges !important;          /* Firefox */
+  -ms-interpolation-mode: nearest-neighbor !important; /* IE/Legacy */
+}
+
