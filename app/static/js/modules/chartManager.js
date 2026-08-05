@@ -91,7 +91,9 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
       position: 0.95,
       showgrid: false,
       zeroline: false
-    }
+    }, 
+    hovermode: 'x unified', 
+    plot_bgcolor: 'transparent'
   };
 
   const config = { responsive: true, displayModeBar: false };
