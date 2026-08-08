@@ -6,7 +6,7 @@ from flask import Flask, render_template, jsonify
 from app.config import Config
 from app.scripts.spatial_calc import get_geojson_from_shapefile
 from app.scripts.climate_calc import DATA_CACHE, preload_climate_data
-from app.api.climate import climate_bp
+from app.api.aifs_frcst import get_aifs_dataset
 
 def create_app():
     app = Flask(__name__)
@@ -20,14 +20,22 @@ def create_app():
     with app.app_context():
         preload_climate_data()
 
+        try:
+            print("\n[INFO] Pre-fetching latest AIFS forecast data into memory ...")
+            get_aifs_dataset()
+        except Exception as e:
+            print(f"\n[WARNING] Could not pre-fetch aifs forecast at startup: {e}")
+
     # Import and register Flask Blueprints
     from app.api.spatial import spatial_bp
     from app.api.climate import climate_bp
-    from app.api.firms import firms_bp  # <-- Imported Flask Blueprint
+    from app.api.firms import firms_bp
+    from app.api.aifs_frcst import aifs_bp
     
     app.register_blueprint(spatial_bp)
     app.register_blueprint(climate_bp)
-    app.register_blueprint(firms_bp)    # <-- Registered with Flask
+    app.register_blueprint(firms_bp)
+    app.register_blueprint(aifs_bp, url_prefix="/api/forecast")  # <-- Register with prefix
 
     # Serve GeoJSON from /data/shapefile/
     @app.route('/api/shapefile/<layer_key>')
@@ -42,3 +50,4 @@ def create_app():
             return jsonify({'error': str(e)}), 400
 
     return app
+

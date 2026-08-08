@@ -8,15 +8,46 @@ import {
   updateRightClimateLayer, 
   clearRightClimateLayer 
 } from './climateLayers.js';
+import {
+  updateLeftForecastLayer,
+  clearLeftForecastLayer,
+  updateRightForecastLayer,
+  clearRightForecastLayer
+} from './forecastLayers.js';
 
 export const state = {
   currentNav: 'MON',
-  selectedIcon: 'Temp', // Default left map layer ('Temp' or 'Rain')
-  selectedTime: navConfig['MON'].timeData[0], // 'Jan'
+  selectedIcon: 'Temp', // Default left map layer
+  selectedTime: navConfig['MON'].timeData[0], // 'Jan' for MON, or 'Day 0' for FOR
   fireVisible: true,
   currentOpacity: 0.75,
   fixedScale: false
 };
+
+/**
+ * Helper to convert parameter icon names to forecast parameter keys
+ */
+function getForecastParamKey(iconName) {
+  const map = {
+    'Temp': 'temp',
+    'Rain': 'rr',
+    'RH': 'rh',
+    'Wind': 'wind'
+  };
+  return map[iconName] || 'temp';
+}
+
+/**
+ * Helper to convert time pill labels (e.g. "Day 0", "Day 1", "Day 2" or numbers) into integer day (0, 1, 2)
+ */
+function getForecastDayNumber(timeValue) {
+  if (typeof timeValue === 'number') return timeValue;
+  if (typeof timeValue === 'string') {
+    const match = timeValue.match(/\d+/);
+    if (match) return parseInt(match[0], 10);
+  }
+  return 0; // Default to Day 0
+}
 
 export function renderUI() {
   const sidebar = document.getElementById('sidebar');
@@ -28,7 +59,6 @@ export function renderUI() {
   const timeBarLabel = document.getElementById('time-bar-label');
   const timePills = document.getElementById('time-pills');
   const chartDrawer = document.getElementById('chart-container');
-
 
   // Fetch Map Handles
   const mapLeft = getMapLeft();
@@ -51,6 +81,8 @@ export function renderUI() {
 
     clearLeftClimateLayer(mapLeft);
     clearRightClimateLayer(mapRight);
+    clearLeftForecastLayer(mapLeft);
+    clearRightForecastLayer(mapRight);
     return;
   }
 
@@ -98,7 +130,7 @@ export function renderUI() {
 
   // Render Time/Pill Selection Bar
   if (timeBarLabel) {
-    timeBarLabel.innerText = config.timeType === 'months' ? 'Select Month:' : 'Select Period:';
+    timeBarLabel.innerText = config.timeType === 'months' ? 'Select Month:' : 'Select Day:';
   }
 
   if (timePills) {
@@ -118,11 +150,11 @@ export function renderUI() {
   }
 
   // 3. Dual-Panel Layer Rendering Logic
-  // Clear existing layers first to avoid orphaned overlays
-  clearLeftClimateLayer(mapLeft);
-  clearRightClimateLayer(mapRight);
-
   if (state.currentNav === 'MON') {
+    // Clear forecast layers if switching from FOR
+    clearLeftForecastLayer(mapLeft);
+    clearRightForecastLayer(mapRight);
+
     const leftParam = (state.selectedIcon === 'Rain') ? 'Rain' : 'Temp';
     
     // Render Left Map (Climate Raster) & Right Map (Wildfire Climatology)
@@ -130,15 +162,18 @@ export function renderUI() {
     updateRightClimateLayer(mapRight, 'Fire', state.selectedTime, state.fixedScale);
 
   } else if (state.currentNav === 'FOR') {
-    // Forecast Mode Logic:
-    // If FOR uses climate parameters (e.g., Rain/Temp forecasts)
-    //const leftParam = (state.selectedIcon === 'Rain') ? 'Rain' : 'Temp';
-    //updateLeftClimateLayer(mapLeft, leftParam, state.selectedTime, state.fixedScale);
-    // If Right map in FOR also displays Fire forecast or a specialized layer:
-    //updateRightClimateLayer(mapRight, 'Fire', state.selectedTime, state.fixedScale);
+    // Clear climate layers when in FOR mode
     clearLeftClimateLayer(mapLeft); 
     clearRightClimateLayer(mapRight);
 
+    const fcstParam = getForecastParamKey(state.selectedIcon);
+    const dayNum = getForecastDayNumber(state.selectedTime);
+
+    // Render Left Map with active Forecast parameter and day
+    updateLeftForecastLayer(mapLeft, fcstParam, dayNum);
+
+    // Optional: Render Right Map if you want a forecast layer or clear it
+    clearRightForecastLayer(mapRight);
   } 
 
   triggerResize();
@@ -146,8 +181,6 @@ export function renderUI() {
 
 /**
  * Enables mouse dragging on a floating panel via a target handle element
- * @param {HTMLElement|string} panelEl - The modal container element or selector
- * @param {HTMLElement|string} handleEl - The header element used to grab & drag
  */
 export function makeElementDraggable(panelEl, handleEl) {
   const panel = typeof panelEl === 'string' ? document.querySelector(panelEl) : panelEl;
@@ -160,16 +193,12 @@ export function makeElementDraggable(panelEl, handleEl) {
   handle.onmousedown = dragMouseDown;
 
   function dragMouseDown(e) {
-    // Ignore drag if user clicks the close button inside the header
     if (e.target.closest('#close-chart-btn')) return;
 
     e.preventDefault();
-    
-    // Get mouse initial position
     pos3 = e.clientX;
     pos4 = e.clientY;
 
-    // Attach listeners to document so fast mouse movements don't detach
     document.onmouseup = closeDragElement;
     document.onmousemove = elementDrag;
   }
@@ -177,28 +206,25 @@ export function makeElementDraggable(panelEl, handleEl) {
   function elementDrag(e) {
     e.preventDefault();
 
-    // Calculate displacement
     pos1 = pos3 - e.clientX;
     pos2 = pos4 - e.clientY;
     pos3 = e.clientX;
     pos4 = e.clientY;
 
-    // Switch positioning mode from fixed bottom/right to top/left on first drag
     const rect = panel.getBoundingClientRect();
     panel.style.bottom = 'auto';
     panel.style.right = 'auto';
     panel.style.top = (rect.top - pos2) + 'px';
     panel.style.left = (rect.left - pos1) + 'px';
 
-    // Resize Plotly inside the container during or after drag
     if (window.Plotly) {
       Plotly.Plots.resize('chart-plotly-target');
     }
   }
 
   function closeDragElement() {
-    // Stop moving when mouse button is released
     document.onmouseup = null;
     document.onmousemove = null;
   }
 }
+

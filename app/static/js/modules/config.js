@@ -16,9 +16,10 @@ export const navConfig = {
       { name: 'Rain', iconClass: 'fa-cloud-showers-heavy' },
     //  { name: 'Fire', iconClass: 'fa-fire' },
       { name: 'Wind', iconClass: 'fa-wind' },
+      { name: 'RH', iconClass: 'fa-shower'},
       { name: 'NDVI', iconClass: 'fa-leaf' }
     ],
     timeType: 'days',
-    timeData: ['Day 0', 'Day 1', 'Day 2']
+    timeData: ['Day 0', 'Day 1', 'Day 2', 'Day 3']
   }
 };
