@@ -32,7 +32,8 @@ function getForecastParamKey(iconName) {
     'Temp': 'temp',
     'Rain': 'rr',
     'RH': 'rh',
-    'Wind': 'wind'
+    'Wind': 'wind',
+    'NDVI': 'NDVI',
   };
   return map[iconName] || 'temp';
 }

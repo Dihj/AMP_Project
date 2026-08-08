@@ -67,24 +67,28 @@ export function updateLeftForecastLayer(mapLeft, parameter = 'temp', day = 0) {
   }
   leftForecastFetchController = new AbortController();
 
-  //const paramMap = { 'Temp': 'temp', 'Rain': 'rr', 'RH': 'rh', 'Wind': 'wind' };
-  const paramMap = {
-    'Temp': 'temp_c',
-    'temp': 'temp_c',
-    'Rain': 'precipitation_surface',
-    'rr': 'precipitation_surface',
-    'RH': 'relative_humidity',
-    'rh': 'relative_humidity',
-    'Wind': 'wind_speed_10m',
-    'wind': 'wind_speed_10m'
+  // Route dynamically based on parameter type
+  let url = '';
+  if (parameter === 'NDVI' || parameter === 'ndvi') {
+    url = `/api/ndvi/plot`;
+  } else {
+    const paramMap = {
+      'Temp': 'temp_c',
+      'temp': 'temp_c',
+      'Rain': 'precipitation_surface',
+      'rr': 'precipitation_surface',
+      'RH': 'relative_humidity',
+      'rh': 'relative_humidity',
+      'Wind': 'wind_speed_10m',
+      'wind': 'wind_speed_10m'
     };
-  const param = paramMap[parameter] || parameter;
-
-  const url = `/api/forecast/plot?variable=${param}&day=${day}`;
+    const param = paramMap[parameter] || parameter;
+    url = `/api/forecast/plot?variable=${param}&day=${day}`;
+  }
 
   fetch(url, { signal: leftForecastFetchController.signal })
     .then(res => {
-      if (!res.ok) throw new Error(`Forecast server status ${res.status}`);
+      if (!res.ok) throw new Error(`Server status ${res.status}`);
       return res.json();
     })
     .then(data => {
@@ -124,14 +128,28 @@ export function updateRightForecastLayer(mapRight, parameter = 'temp', day = 0) 
   }
   rightForecastFetchController = new AbortController();
 
-  const paramMap = { 'Temp': 'temp', 'Rain': 'rr', 'RH': 'rh', 'Wind': 'wind' };
-  const param = paramMap[parameter] || parameter;
-
-  const url = `/api/forecast/plot?variable=${param}&day=${day}`;
+  // Route dynamically based on parameter type
+  let url = '';
+  if (parameter === 'NDVI' || parameter === 'ndvi') {
+    url = `/api/ndvi/plot`;
+  } else {
+    const paramMap = {
+      'Temp': 'temp_c',
+      'temp': 'temp_c',
+      'Rain': 'precipitation_surface',
+      'rr': 'precipitation_surface',
+      'RH': 'relative_humidity',
+      'rh': 'relative_humidity',
+      'Wind': 'wind_speed_10m',
+      'wind': 'wind_speed_10m'
+    };
+    const param = paramMap[parameter] || parameter;
+    url = `/api/forecast/plot?variable=${param}&day=${day}`;
+  }
 
   fetch(url, { signal: rightForecastFetchController.signal })
     .then(res => {
-      if (!res.ok) throw new Error(`Forecast server status ${res.status}`);
+      if (!res.ok) throw new Error(`Server status ${res.status}`);
       return res.json();
     })
     .then(data => {

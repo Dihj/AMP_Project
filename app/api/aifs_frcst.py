@@ -24,7 +24,10 @@ logger = logging.getLogger(__name__)
 
 aifs_bp = Blueprint("aifs_forecast", __name__)
 
+# Global In-Memory Caches
 AIFS_CACHE = {"last_fetched": 0, "dataset": None}
+PLOT_CACHE = {}  # Caches final JSON responses: key = f"{var_name}_{day_num}"
+GEOMETRY_MASK_CACHE = None  # Caches spatial mask so geometry_mask runs only ONCE
 
 DEBUG_MODE = True  # Set to False in production
 CACHE_TTL = 43200  # 12 hours
@@ -55,36 +58,31 @@ def calculate_relative_humidity(t2m_c, d2m_c):
     rh = (e / es) * 100.0
     return np.clip(rh, 0.0, 100.0)
 
-def clip_to_land_shapefile(da_field, layer_key="districtMdg", target_resolution=0.05):
+
+def get_cached_land_mask(fine_lats, fine_lons, layer_key="districtMdg"):
     """
-    Interpolates da_field to a fine grid for smooth edges and masks ocean pixels using geometry_mask.
-    
-    :param da_field: Input 2D DataArray (latitude, longitude)
-    :param layer_key: Layer mapping in spatial_calc.py
-    :param target_resolution: Grid step in degrees (~0.05deg is ~5km smooth grid)
+    Generates and caches the boolean spatial land mask ONCE in memory.
+    Subsequent calls re-use the cached mask array instantly (0ms overhead).
     """
+    global GEOMETRY_MASK_CACHE
+
+    if GEOMETRY_MASK_CACHE is not None:
+        return GEOMETRY_MASK_CACHE
+
+    logger.info("Building cached high-resolution land mask...")
     try:
-        # 1. Load GeoJSON shapes via spatial_calc
         geojson_data = get_geojson_from_shapefile(layer_key)
         gdf = gpd.GeoDataFrame.from_features(geojson_data["features"], crs="EPSG:4326")
-
-        # 2. Smooth / Upsample grid using linear interpolation
-        min_lat, max_lat = float(da_field.latitude.min()), float(da_field.latitude.max())
-        min_lon, max_lon = float(da_field.longitude.min()), float(da_field.longitude.max())
-
-        fine_lats = np.arange(max_lat, min_lat - target_resolution, -target_resolution)
-        fine_lons = np.arange(min_lon, max_lon + target_resolution, target_resolution)
-
-        da_interp = da_field.interp(latitude=fine_lats, longitude=fine_lons, method="linear")
 
         height = len(fine_lats)
         width = len(fine_lons)
 
-        # 3. Create rasterio transform matching high-res grid bounds
-        transform = from_bounds(min_lon, min_lat, max_lon, max_lat, width, height)
+        min_lon, max_lon = float(np.min(fine_lons)), float(np.max(fine_lons))
+        min_lat, max_lat = float(np.min(fine_lats)), float(np.max(fine_lats))
 
-        # 4. Generate boolean mask
+        transform = from_bounds(min_lon, min_lat, max_lon, max_lat, width, height)
         geometries = [geom for geom in gdf.geometry if geom is not None and not geom.is_empty]
+
         mask = geometry_mask(
             geometries,
             out_shape=(height, width),
@@ -92,16 +90,41 @@ def clip_to_land_shapefile(da_field, layer_key="districtMdg", target_resolution=
             invert=False,  # False: Outside land geometry = True (Ocean)
         )
 
-        # 5. Apply land mask
-        masked_values = np.where(mask, np.nan, da_interp.values)
-        da_interp.values = masked_values
+        GEOMETRY_MASK_CACHE = mask
+        return mask
+    except Exception as e:
+        logger.error(f"Failed to generate land mask: {e}")
+        return None
+
+
+def clip_to_land_shapefile(da_field, layer_key="districtMdg", target_resolution=0.05):
+    """
+    Interpolates da_field to a fine grid and masks ocean pixels using pre-cached land mask.
+    """
+    try:
+        min_lat, max_lat = float(da_field.latitude.min()), float(da_field.latitude.max())
+        min_lon, max_lon = float(da_field.longitude.min()), float(da_field.longitude.max())
+
+        # 1. High-resolution grid
+        fine_lats = np.arange(max_lat, min_lat - target_resolution, -target_resolution)
+        fine_lons = np.arange(min_lon, max_lon + target_resolution, target_resolution)
+
+        # 2. Fast linear interpolation
+        da_interp = da_field.interp(latitude=fine_lats, longitude=fine_lons, method="linear")
+
+        # 3. Retrieve pre-built boolean mask
+        mask = get_cached_land_mask(fine_lats, fine_lons, layer_key)
+
+        if mask is not None:
+            masked_values = np.where(mask, np.nan, da_interp.values)
+            da_interp.values = masked_values
 
         return da_interp
 
     except Exception as e:
         logger.warning(f"Land clipping failed: {e}. Returning unclipped raster.")
         return da_field
-    
+
 
 def download_and_save_aifs():
     """Fetch 72h forecast from S3 Icechunk, compute parameters, and save locally."""
@@ -143,19 +166,19 @@ def download_and_save_aifs():
     loaded_ds = regional_ds.load()
     loaded_ds = clear_zarr_encodings(loaded_ds)
 
-    # 1. Keep Temperature in °C
+    # 1. Temperature in °C
     if "temperature_2m" in loaded_ds:
         loaded_ds["temp_2m_celsius"] = loaded_ds["temperature_2m"]
         loaded_ds["temp_2m_celsius"].attrs["units"] = "°C"
 
-    # 2. Relative Humidity (%) with Celsius inputs
+    # 2. Relative Humidity (%)
     if "temperature_2m" in loaded_ds and "dew_point_temperature_2m" in loaded_ds:
         loaded_ds["relative_humidity_2m"] = calculate_relative_humidity(
             loaded_ds["temperature_2m"], loaded_ds["dew_point_temperature_2m"]
         )
         loaded_ds["relative_humidity_2m"].attrs["units"] = "%"
 
-    # 3. Surface Precipitation in mm (from m)
+    # 3. Surface Precipitation in mm
     if "precipitation_surface" in loaded_ds:
         loaded_ds["precipitation_surface_mm"] = loaded_ds["precipitation_surface"] * 1000.0
         loaded_ds["precipitation_surface_mm"].attrs["units"] = "mm"
@@ -170,6 +193,9 @@ def download_and_save_aifs():
     os.makedirs(FORECAST_DIR, exist_ok=True)
     loaded_ds.to_zarr(LOCAL_ZARR_PATH, mode="w")
     logger.info(f"Successfully saved raw forecast to '{LOCAL_ZARR_PATH}'")
+
+    # Invalidate rendered plot cache when new data arrives
+    PLOT_CACHE.clear()
 
     return loaded_ds
 
@@ -211,7 +237,7 @@ def get_day_slice(ds, day_num):
 
 @aifs_bp.route("/plot", methods=["GET"])
 def get_forecast_plot():
-    """Generates Base64 PNG overlay masked to land, legend details, and bounds for Leaflet."""
+    """Generates Base64 PNG overlay with ultra-fast responses via in-memory plot caching."""
     raw_var = request.args.get("variable", default="temp_2m_celsius")
     day_num = request.args.get("day", default=0, type=int)
 
@@ -235,11 +261,18 @@ def get_forecast_plot():
     }
     var_name = var_map.get(raw_var, raw_var)
 
+    # -------------------------------------------------------------
+    # OPTIMIZATION 1: Check In-Memory Plot Cache (Instant < 10ms response)
+    # -------------------------------------------------------------
+    cache_key = f"{var_name}_day{day_num}"
+    if cache_key in PLOT_CACHE:
+        return jsonify(PLOT_CACHE[cache_key])
+
     try:
         ds = get_aifs_dataset()
         day_ds = get_day_slice(ds, day_num)
 
-        # Variable Parameter Config
+        # Config per variable
         if var_name == "precipitation_surface_mm":
             field = day_ds[var_name].max(dim="lead_time") - day_ds[var_name].min(dim="lead_time")
             cmap_name = "Blues"
@@ -269,11 +302,13 @@ def get_forecast_plot():
         if "init_time" in field.dims:
             field = field.squeeze("init_time")
 
-        # 1. Sort latitudes ascendingly so spatial alignment matches Leaflet bounds
+        # Sort latitude north-to-south
         if field.latitude[0] < field.latitude[-1]:
             field = field.reindex(latitude=field.latitude[::-1])
 
-        # 2. Crop array using shapefile features from spatial_calc.py
+        # -------------------------------------------------------------
+        # OPTIMIZATION 2: Smooth & Mask using Cached Land Mask
+        # -------------------------------------------------------------
         field = clip_to_land_shapefile(field, layer_key="districtMdg", target_resolution=0.05)
 
         lats = field.latitude.values
@@ -295,7 +330,7 @@ def get_forecast_plot():
             vmax = vmin + 1.0
 
         # Render transparent PNG for Leaflet Overlay
-        fig = plt.figure(figsize=(8, 8), frameon=False)
+        fig = plt.figure(figsize=(6, 6), frameon=False)  # Slightly reduced figure size for faster rendering
         ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])
         ax.set_axis_off()
         fig.add_axes(ax)
@@ -309,11 +344,11 @@ def get_forecast_plot():
             norm=norm,
             origin="upper",
             aspect="auto",
-            interpolation="bilinear",
+            interpolation="nearest",  # Faster rendering since array is already 0.05° interpolated
         )
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=200, transparent=True)
+        plt.savefig(buf, format="png", dpi=150, transparent=True)  # Optimized 150 DPI
         buf.seek(0)
         plt.close(fig)
 
@@ -321,7 +356,7 @@ def get_forecast_plot():
         img_base64 = base64.b64encode(buf.getvalue()).decode("utf-8")
         data_url = f"data:image/png;base64,{img_base64}"
 
-        # Generate Legend Ticks (5 stops)
+        # Generate Legend Ticks
         legend_ticks = []
         tick_vals = np.linspace(vmin, vmax, 5)
         for val in tick_vals:
@@ -331,14 +366,19 @@ def get_forecast_plot():
 
         day_label = "Today" if day_num == 0 else "Tomorrow" if day_num == 1 else f"Day {day_num}"
 
-        return jsonify({
+        response_payload = {
             "status": "success",
             "bounds": bounds,
             "imageUrl": data_url,
             "legend": legend_ticks,
             "unit": unit,
             "title": f"{title_name} ({day_label})",
-        })
+        }
+
+        # Save result to memory cache
+        PLOT_CACHE[cache_key] = response_payload
+
+        return jsonify(response_payload)
 
     except Exception as e:
         logger.error(f"Failed to generate forecast plot: {e}", exc_info=True)
