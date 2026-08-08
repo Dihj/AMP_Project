@@ -1,5 +1,56 @@
 // static/js/modules/chartManager.js
 
+/**
+ * Exports the complete chart modal as a high-resolution PNG using html2canvas
+ */
+function downloadChartAsPNG(titleText) {
+  const modalElem = document.getElementById('chart-container');
+  if (!modalElem) return;
+
+  const downloadBtn = document.getElementById('download-chart-btn');
+  const originalBtnContent = downloadBtn ? downloadBtn.innerHTML : '';
+
+  if (downloadBtn) {
+    downloadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    downloadBtn.disabled = true;
+  }
+
+  if (typeof html2canvas === 'undefined') {
+    alert('html2canvas library is missing. Ensure it is included in your base HTML script tags.');
+    if (downloadBtn) {
+      downloadBtn.innerHTML = originalBtnContent;
+      downloadBtn.disabled = false;
+    }
+    return;
+  }
+
+  html2canvas(modalElem, {
+    backgroundColor: '#0f172a', // Matches slate-900 background
+    useCORS: true,
+    scale: 2, // High resolution capture
+    logging: false
+  }).then(canvas => {
+    if (downloadBtn) {
+      downloadBtn.innerHTML = originalBtnContent;
+      downloadBtn.disabled = false;
+    }
+
+    const link = document.createElement('a');
+    const sanitizedTitle = (titleText || 'climatology_chart').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const timeStamp = new Date().toISOString().slice(0, 10);
+
+    link.download = `${sanitizedTitle}_${timeStamp}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }).catch(err => {
+    console.error('[Export Error] Failed to capture chart as PNG:', err);
+    if (downloadBtn) {
+      downloadBtn.innerHTML = originalBtnContent;
+      downloadBtn.disabled = false;
+    }
+  });
+}
+
 export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
   const months = data.months;
 
@@ -13,10 +64,16 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
     }
   }
 
-  // Update HTML header text directly
+  // Update HTML header text
   const headerTitleEl = document.getElementById('chart-modal-title');
   if (headerTitleEl) {
     headerTitleEl.textContent = titleText;
+  }
+
+  // Attach PNG download event listener
+  const downloadBtn = document.getElementById('download-chart-btn');
+  if (downloadBtn) {
+    downloadBtn.onclick = () => downloadChartAsPNG(titleText);
   }
 
   // 2. Traces
@@ -55,11 +112,11 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
     yaxis: 'y2'
   };
 
-  // 3. Layout (Notice: title is omitted here to let HTML header manage it)
+  // 3. Layout
   const layout = {
     paper_bgcolor: 'transparent',
     plot_bgcolor: 'transparent',
-    margin: { l: 40, r: 45, t: 15, b: 30 }, // Tight margins so plot fills space
+    margin: { l: 40, r: 45, t: 15, b: 30 },
     legend: {
       orientation: 'h',
       x: 0,
@@ -92,11 +149,11 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
       showgrid: false,
       zeroline: false
     }, 
-    hovermode: 'x unified', 
-    plot_bgcolor: 'transparent'
+    hovermode: 'x unified'
   };
 
   const config = { responsive: true, displayModeBar: false };
 
   Plotly.newPlot('chart-plotly-target', [fireTrace, rainTrace, tempTrace], layout, config);
 }
+

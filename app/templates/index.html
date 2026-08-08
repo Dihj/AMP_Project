@@ -127,15 +127,21 @@
         </section>
       </div>
 
-      <!-- Chart Modal Container -->
+<!-- Chart Modal Container -->
       <div id="chart-container" class="chart-modal hidden">
-        <!-- Header Bar: Holds Dynamic Title & Close Button -->
+        <!-- Header Bar: Holds Dynamic Title, Download Icon & Close Button -->
         <div class="chart-modal-header">
           <div class="chart-title-group">
             <i class="fa-solid fa-chart-line title-icon"></i>
             <span id="chart-modal-title" class="chart-modal-title">Climatology Overview</span>
           </div>
-          <button id="close-chart-btn" class="chart-close-btn" title="Close Panel">&times;</button>
+          
+          <div class="chart-header-actions" style="display: flex; align-items: center; gap: 8px;">
+            <button id="download-chart-btn" class="chart-close-btn" title="Download Chart PNG">
+              <i class="fa-solid fa-download"></i>
+            </button>
+            <button id="close-chart-btn" class="chart-close-btn" title="Close Panel">&times;</button>
+          </div>
         </div>
 
         <!-- Plotly Render Target -->
