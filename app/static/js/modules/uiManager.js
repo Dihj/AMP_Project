@@ -14,32 +14,21 @@ import {
   updateRightForecastLayer,
   clearRightForecastLayer
 } from './forecastLayers.js';
+import { updateRightFireIndexLayer, clearRightFireIndexLayer } from './fireIndexLayers.js';
 
 export const state = {
   currentNav: 'MON',
-  selectedIcon: 'Temp', // Default left map layer
-  selectedTime: navConfig['MON'].timeData[0], // 'Jan' for MON, or 'Day 0' for FOR
+  selectedIcon: 'Temp',        // For MON mode
+  leftForecastIcon: 'Temp',     // For FOR mode (Left Map: Rain, Temp, Wind, RH, NDVI)
+  rightForecastIcon: 'FWI',     // For FOR mode (Right Map: FWI, FOPI)
+  selectedTime: navConfig['MON'].timeData[0],
   fireVisible: true,
   currentOpacity: 0.75,
   fixedScale: false
 };
 
 /**
- * Helper to convert parameter icon names to forecast parameter keys
- */
-function getForecastParamKey(iconName) {
-  const map = {
-    'Temp': 'temp',
-    'Rain': 'rr',
-    'RH': 'rh',
-    'Wind': 'wind',
-    'NDVI': 'NDVI',
-  };
-  return map[iconName] || 'temp';
-}
-
-/**
- * Helper to convert time pill labels (e.g. "Day 0", "Day 1", "Day 2" or numbers) into integer day (0, 1, 2)
+ * Helper to convert time pill labels ("Day 0", "Day 1", etc.) into an integer day index (0, 1, 2)
  */
 function getForecastDayNumber(timeValue) {
   if (typeof timeValue === 'number') return timeValue;
@@ -47,7 +36,7 @@ function getForecastDayNumber(timeValue) {
     const match = timeValue.match(/\d+/);
     if (match) return parseInt(match[0], 10);
   }
-  return 0; // Default to Day 0
+  return 0;
 }
 
 export function renderUI() {
@@ -61,15 +50,15 @@ export function renderUI() {
   const timePills = document.getElementById('time-pills');
   const chartDrawer = document.getElementById('chart-container');
 
-  // Fetch Map Handles
   const mapLeft = getMapLeft();
   const mapRight = getMapRight();
 
+  // Clear chart if leaving MON mode
   if (state.currentNav !== 'MON' && chartDrawer) {
     chartDrawer.classList.add('hidden'); 
     const chartTarget = document.getElementById('chart-plotly-target'); 
     if (chartTarget && window.Plotly) {
-        window.Plotly.purge(chartTarget);
+      window.Plotly.purge(chartTarget);
     }
   }
 
@@ -84,6 +73,7 @@ export function renderUI() {
     clearRightClimateLayer(mapRight);
     clearLeftForecastLayer(mapLeft);
     clearRightForecastLayer(mapRight);
+    clearRightFireIndexLayer(mapRight);
     return;
   }
 
@@ -95,38 +85,86 @@ export function renderUI() {
 
   const config = navConfig[state.currentNav];
 
-  // Validate that selectedTime belongs to the active tab configuration
+  // Validate selected time
   if (!config.timeData.includes(state.selectedTime)) {
     state.selectedTime = config.timeData[0];
   }
 
-  // Validate selectedIcon for the active tab
-  const validIconNames = config.icons.map(i => i.name);
-  if (!validIconNames.includes(state.selectedIcon)) {
-    state.selectedIcon = validIconNames[0];
-  }
-
   if (drawerTitle) {
-    drawerTitle.innerText = `${state.selectedIcon} Layer Controls`;
+    const activeLabel = state.currentNav === 'MON' 
+      ? state.selectedIcon 
+      : `${state.leftForecastIcon} / ${state.rightForecastIcon}`;
+    drawerTitle.innerText = `${activeLabel} Layer Controls`;
   }
 
-  // Render Sidebar Icons (For Left Map switching)
+  // Render Sidebar Icons dynamically depending on tab structure
   if (iconBar) {
     iconBar.innerHTML = '';
-    config.icons.forEach(item => {
-      const iconBtn = document.createElement('button');
-      iconBtn.className = `icon-btn ${state.selectedIcon === item.name ? 'active' : ''}`;
-      iconBtn.innerHTML = `<i class="fa-solid ${item.iconClass}"></i>`;
-      iconBtn.title = item.name;
 
-      iconBtn.addEventListener('click', () => {
-        state.selectedIcon = item.name;
-        if (textDrawer) textDrawer.classList.remove('hidden');
-        renderUI();
+    if (state.currentNav === 'MON') {
+      config.icons.forEach(item => {
+        const iconBtn = document.createElement('button');
+        iconBtn.className = `icon-btn ${state.selectedIcon === item.name ? 'active' : ''}`;
+        iconBtn.innerHTML = `<i class="fa-solid ${item.iconClass}"></i>`;
+        iconBtn.title = item.name;
+
+        iconBtn.addEventListener('click', () => {
+          state.selectedIcon = item.name;
+          if (textDrawer) textDrawer.classList.remove('hidden');
+          renderUI();
+        });
+
+        iconBar.appendChild(iconBtn);
       });
 
-      iconBar.appendChild(iconBtn);
-    });
+    } else if (state.currentNav === 'FOR') {
+      // Group 1: Left Map Weather & NDVI
+      const leftLabel = document.createElement('div');
+      leftLabel.className = 'sidebar-section-title';
+      leftLabel.innerText = 'LEFT MAP';
+      iconBar.appendChild(leftLabel);
+
+      config.leftIcons.forEach(item => {
+        const iconBtn = document.createElement('button');
+        iconBtn.className = `icon-btn ${state.leftForecastIcon === item.name ? 'active' : ''}`;
+        iconBtn.innerHTML = `<i class="fa-solid ${item.iconClass}"></i>`;
+        iconBtn.title = `Left Map: ${item.name}`;
+
+        iconBtn.addEventListener('click', () => {
+          state.leftForecastIcon = item.name;
+          if (textDrawer) textDrawer.classList.remove('hidden');
+          renderUI();
+        });
+
+        iconBar.appendChild(iconBtn);
+      });
+
+      // Divider
+      const hr = document.createElement('hr');
+      hr.className = 'sidebar-divider';
+      iconBar.appendChild(hr);
+
+      // Group 2: Right Map Fire Risk Indices
+      const rightLabel = document.createElement('div');
+      rightLabel.className = 'sidebar-section-title';
+      rightLabel.innerText = 'RIGHT MAP';
+      iconBar.appendChild(rightLabel);
+
+      config.rightIcons.forEach(item => {
+        const iconBtn = document.createElement('button');
+        iconBtn.className = `icon-btn ${state.rightForecastIcon === item.name ? 'active' : ''}`;
+        iconBtn.innerHTML = `<i class="fa-solid ${item.iconClass}"></i>`;
+        iconBtn.title = `Right Map: ${item.name}`;
+
+        iconBtn.addEventListener('click', () => {
+          state.rightForecastIcon = item.name;
+          if (textDrawer) textDrawer.classList.remove('hidden');
+          renderUI();
+        });
+
+        iconBar.appendChild(iconBtn);
+      });
+    }
   }
 
   // Render Time/Pill Selection Bar
@@ -143,7 +181,7 @@ export function renderUI() {
 
       pillBtn.addEventListener('click', () => {
         state.selectedTime = item;
-        renderUI(); // Re-render maps with selected time step
+        renderUI();
       });
 
       timePills.appendChild(pillBtn);
@@ -152,30 +190,36 @@ export function renderUI() {
 
   // 3. Dual-Panel Layer Rendering Logic
   if (state.currentNav === 'MON') {
-    // Clear forecast layers if switching from FOR
+    // Clear forecast layers when in MON mode
     clearLeftForecastLayer(mapLeft);
     clearRightForecastLayer(mapRight);
+    clearRightFireIndexLayer(mapRight);
 
     const leftParam = (state.selectedIcon === 'Rain') ? 'Rain' : 'Temp';
-    
-    // Render Left Map (Climate Raster) & Right Map (Wildfire Climatology)
     updateLeftClimateLayer(mapLeft, leftParam, state.selectedTime, state.fixedScale);
     updateRightClimateLayer(mapRight, 'Fire', state.selectedTime, state.fixedScale);
 
   } else if (state.currentNav === 'FOR') {
     // Clear climate layers when in FOR mode
-    clearLeftClimateLayer(mapLeft); 
+    clearLeftClimateLayer(mapLeft);
     clearRightClimateLayer(mapRight);
 
-    const fcstParam = getForecastParamKey(state.selectedIcon);
     const dayNum = getForecastDayNumber(state.selectedTime);
 
-    // Render Left Map with active Forecast parameter and day
-    updateLeftForecastLayer(mapLeft, fcstParam, dayNum);
+    // --- LEFT MAP (Weather Forecast / NDVI) ---
+    // Pass 'NDVI' directly to updateLeftForecastLayer so it handles both overlay and legend
+    if (state.leftForecastIcon === 'NDVI') {
+      updateLeftForecastLayer(mapLeft, 'NDVI', dayNum);
+    } else {
+      const paramKeyMap = { 'Temp': 'temp', 'Rain': 'rr', 'Wind': 'wind', 'RH': 'rh' };
+      const fcstKey = paramKeyMap[state.leftForecastIcon] || 'temp';
+      updateLeftForecastLayer(mapLeft, fcstKey, dayNum);
+    }
 
-    // Optional: Render Right Map if you want a forecast layer or clear it
-    clearRightForecastLayer(mapRight);
-  } 
+    // --- RIGHT MAP (Fire Risk Index: FWI / FOPI) ---
+    const fireKey = state.rightForecastIcon.toLowerCase(); // 'fwi' or 'fopi'
+    updateRightFireIndexLayer(mapRight, fireKey, dayNum);
+  }
 
   triggerResize();
 }

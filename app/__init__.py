@@ -40,11 +40,16 @@ def create_app():
     from app.api.firms import firms_bp
     from app.api.aifs_frcst import aifs_bp
     from app.api.ndvi import ndvi_bp
+    from app.api.fire_indices import fire_indices_bp
+    from app.api.forecast import forecast_bp
     
     app.register_blueprint(spatial_bp)
     app.register_blueprint(climate_bp)
     app.register_blueprint(firms_bp)
     app.register_blueprint(aifs_bp, url_prefix="/api/forecast")
+    app.register_blueprint(fire_indices_bp)
+    app.register_blueprint(forecast_bp)
+
     
     # Register NDVI with prefix so endpoint is GET /api/ndvi/plot
     app.register_blueprint(ndvi_bp, url_prefix="/api/ndvi")

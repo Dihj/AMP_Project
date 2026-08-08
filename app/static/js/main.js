@@ -7,17 +7,13 @@ import {
   setTileOpacity, 
   toggleFireLayer, 
   toggleBoundaryLayer, 
-  updateRasterLayer ,
   clearRasterLayer
 } from './modules/mapManager.js';
-import { state, renderUI } from './modules/uiManager.js';
-
-import { makeElementDraggable } from './modules/uiManager.js';
+import { state, renderUI, makeElementDraggable } from './modules/uiManager.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     makeElementDraggable('#chart-container', '.chart-modal-header');
-    
-})
+});
 
 document.addEventListener("DOMContentLoaded", function () {
 
@@ -28,7 +24,6 @@ document.addEventListener("DOMContentLoaded", function () {
   const opacitySlider = document.getElementById('opacity-slider');
   const opacityVal = document.getElementById('opacity-val');
   const toggleFireBtn = document.getElementById('toggle-fire-btn');
-  const timePillsContainer = document.getElementById('time-pills'); // Target parent container
 
   // 1. Navigation Button Click Listeners (MON, FOR, About)
   navBtns.forEach(btn => {
@@ -40,19 +35,24 @@ document.addEventListener("DOMContentLoaded", function () {
 
       if (targetNav !== 'About') {
         state.currentNav = targetNav;
-        state.selectedIcon = navConfig[state.currentNav].icons[0].name;
+
+        // Reset selected time for target tab
         state.selectedTime = navConfig[state.currentNav].timeData[0];
+
+        // Safely set icon state based on available structure
+        if (state.currentNav === 'MON') {
+          state.selectedIcon = navConfig['MON'].icons[0].name;
+        } else if (state.currentNav === 'FOR') {
+          state.leftForecastIcon = navConfig['FOR'].leftIcons[0].name;
+          state.rightForecastIcon = navConfig['FOR'].rightIcons[0].name;
+        }
       } else {
         state.currentNav = 'About';
         clearRasterLayer();
       }
 
+      // renderUI() handles fetching and rendering layer maps for all modes
       renderUI();
-      
-      // Update spatial map raster for the selected tab/time
-      if (state.currentNav !== 'About') {
-        updateRasterLayer(state.selectedIcon, state.selectedTime);
-      }
     });
   });
 
@@ -96,31 +96,9 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 
-  // 6. Dynamic Time Pill Listener (Event Delegation)
-  // Listen on the parent container because time pills are dynamically rendered by renderUI()
-  if (timePillsContainer) {
-    timePillsContainer.addEventListener('click', (e) => {
-      const pill = e.target.closest('.time-pill');
-      if (pill) {
-        const selectedTime = pill.dataset.time || pill.innerText.trim();
-        state.selectedTime = selectedTime;
-        
-        // Pass current active icon/parameter and selected time step to the raster update function
-        const activeParam = state.selectedIcon || 'rr';
-        updateRasterLayer(activeParam, selectedTime);
-      }
-    });
-  }
-
   // ==========================================
   // BOOT SEQUENCE
   // ==========================================
   initMapsOnce(state.currentOpacity, state.fireVisible);
   renderUI();
-
-  // Load initial spatial map colors on startup
-  if (state.selectedIcon && state.selectedTime) {
-    updateRasterLayer(state.selectedIcon, state.selectedTime);
-  }
 });
-

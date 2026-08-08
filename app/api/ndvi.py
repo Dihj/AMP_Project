@@ -203,7 +203,7 @@ def get_ndvi_plot():
         data_vals = field.values
         
         # 3. Set proper NDVI bounds (-0.1 to 0.8)
-        vmin, vmax = 0.0, 0.8
+        vmin, vmax = -0.1, 0.8
 
         fig = plt.figure(figsize=(6, 6), frameon=False)
         ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])

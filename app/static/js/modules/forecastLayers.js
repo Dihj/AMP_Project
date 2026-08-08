@@ -67,7 +67,6 @@ export function updateLeftForecastLayer(mapLeft, parameter = 'temp', day = 0) {
   }
   leftForecastFetchController = new AbortController();
 
-  // Route dynamically based on parameter type
   let url = '';
   if (parameter === 'NDVI' || parameter === 'ndvi') {
     url = `/api/ndvi/plot`;
@@ -109,8 +108,10 @@ export function updateLeftForecastLayer(mapLeft, parameter = 'temp', day = 0) {
         });
         leftForecastOverlay.addTo(mapLeft);
 
-        leftForecastLegendControl = createForecastLegendControl(data, 'bottomleft');
-        leftForecastLegendControl.addTo(mapLeft);
+        if (data.legend && Array.isArray(data.legend) && data.legend.length > 0) {
+          leftForecastLegendControl = createForecastLegendControl(data, 'bottomleft');
+          leftForecastLegendControl.addTo(mapLeft);
+        }
       });
     })
     .catch(err => {
@@ -128,7 +129,6 @@ export function updateRightForecastLayer(mapRight, parameter = 'temp', day = 0) 
   }
   rightForecastFetchController = new AbortController();
 
-  // Route dynamically based on parameter type
   let url = '';
   if (parameter === 'NDVI' || parameter === 'ndvi') {
     url = `/api/ndvi/plot`;
@@ -170,8 +170,10 @@ export function updateRightForecastLayer(mapRight, parameter = 'temp', day = 0) 
         });
         rightForecastOverlay.addTo(mapRight);
 
-        rightForecastLegendControl = createForecastLegendControl(data, 'bottomright');
-        rightForecastLegendControl.addTo(mapRight);
+        if (data.legend && Array.isArray(data.legend) && data.legend.length > 0) {
+          rightForecastLegendControl = createForecastLegendControl(data, 'bottomright');
+          rightForecastLegendControl.addTo(mapRight);
+        }
       });
     })
     .catch(err => {
@@ -189,14 +191,18 @@ function createForecastLegendControl(data, position) {
     const colors = data.legend.map(item => item.color).join(', ');
     const gradientCss = `linear-gradient(to right, ${colors})`;
 
+    const firstVal = data.legend[0].value;
+    const midVal = data.legend[Math.floor(data.legend.length / 2)].value;
+    const lastVal = data.legend[data.legend.length - 1].value;
+
     div.innerHTML = `
       <div style="background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); padding: 8px 12px; border-radius: 6px; color: #f8fafc; font-family: sans-serif; font-size: 11px; border: 1px solid rgba(255,255,255,0.1); min-width: 160px;">
         <div style="font-weight: 600; margin-bottom: 4px; color: #38bdf8;">${data.title} (${data.unit})</div>
         <div style="height: 10px; width: 100%; background: ${gradientCss}; border-radius: 2px; margin-bottom: 4px; border: 1px solid rgba(255,255,255,0.2);"></div>
         <div style="display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8;">
-          <span>${data.legend[0].value}</span>
-          <span>${data.legend[Math.floor(data.legend.length / 2)].value}</span>
-          <span>${data.legend[data.legend.length - 1].value}</span>
+          <span>${firstVal}</span>
+          <span>${midVal}</span>
+          <span>${lastVal}</span>
         </div>
       </div>
     `;
@@ -207,4 +213,3 @@ function createForecastLegendControl(data, position) {
 
   return legendControl;
 }
-

@@ -1,6 +1,7 @@
 // static/js/modules/mapManager.js
 
 import { renderOmbrothermicFireChart } from './chartManager.js';
+import { renderForecastSummaryModal } from './forecastModalManager.js';
 import { updateLeftClimateLayer, clearLeftClimateLayer } from './climateLayers.js';
 
 let mapLeft = null;
@@ -162,6 +163,86 @@ function findIntersectedFeature(latlng) {
   return null;
 }
 */
+/*
+export function setupMapClickEvents(mapLeft, mapRight) {
+  if (!mapLeft || !mapRight) return;
+
+  const chartDrawer = document.getElementById('chart-container');
+  const closeBtn = document.getElementById('close-chart-btn');
+
+  if (closeBtn && chartDrawer) {
+    closeBtn.onclick = () => chartDrawer.classList.add('hidden');
+  }
+
+  const handleMapClick = (e) => {
+    import('./uiManager.js').then((uiModule) => {
+      const currentNav = uiModule.state.currentNav;
+      if (currentNav !== 'MON' && currentNav !== 'FOR') return;
+
+      const lat = parseFloat(e.latlng.lat.toFixed(4));
+      const lon = parseFloat(e.latlng.lng.toFixed(4));
+
+      if (chartDrawer) chartDrawer.classList.remove('hidden');
+
+      // Check if click intersects active boundary feature (District priority over PA)
+      const hitFeature = findIntersectedFeature(e.latlng);
+
+      if (currentNav === 'MON') {
+        // --- 1. CLIMATOLOGY MODE (MON) ---
+        if (hitFeature) {
+          fetch('/api/climate/timeseries', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ geometry: hitFeature.geometry, name: hitFeature.name })
+          })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.error) return;
+              renderOmbrothermicFireChart('chart-plotly-target', data, { name: data.name });
+            })
+            .catch((err) => console.error('Error fetching polygon climate timeseries:', err));
+        } else {
+          fetch(`/api/climate/timeseries?lat=${lat}&lon=${lon}`)
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.error) return;
+              renderOmbrothermicFireChart('chart-plotly-target', data, { lat, lon, name: data.name });
+            })
+            .catch((err) => console.error('Error fetching point climate timeseries:', err));
+        }
+
+      } else if (currentNav === 'FOR') {
+        // --- 2. FORECAST MODE (FOR) ---
+        const payload = hitFeature
+          ? { geometry: hitFeature.geometry, name: hitFeature.name }
+          : { lat: lat, lon: lon };
+
+        fetch('/api/forecast/summary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.status !== 'success') {
+              console.error('Forecast summary error:', data.error);
+              return;
+            }
+            renderForecastSummaryChart('chart-plotly-target', data, {
+              lat: lat,
+              lon: lon,
+              name: hitFeature ? hitFeature.name : data.name
+            });
+          })
+          .catch((err) => console.error('Error fetching forecast summary:', err));
+      }
+    });
+  };
+
+  mapLeft.on('click', handleMapClick);
+  mapRight.on('click', handleMapClick);
+}
+*/
 
 export function setupMapClickEvents(mapLeft, mapRight) {
   if (!mapLeft || !mapRight) return;
@@ -174,43 +255,66 @@ export function setupMapClickEvents(mapLeft, mapRight) {
   }
 
   const handleMapClick = (e) => {
-    import('./uiManager.js').then(uiModule => {
-      if (uiModule.state.currentNav !== 'MON') return;
+    import('./uiManager.js').then((uiModule) => {
+      const currentNav = uiModule.state.currentNav;
+      if (currentNav !== 'MON' && currentNav !== 'FOR') return;
 
-      const lat = e.latlng.lat.toFixed(4);
-      const lon = e.latlng.lng.toFixed(4);
+      const lat = parseFloat(e.latlng.lat.toFixed(4));
+      const lon = parseFloat(e.latlng.lng.toFixed(4));
 
-      if (chartDrawer) chartDrawer.classList.remove('hidden');
-
-      // Check if click intersects an active boundary feature (District takes priority over PA)
+      // Intersect active boundary polygon (District priority over PA)
       const hitFeature = findIntersectedFeature(e.latlng);
 
-      if (hitFeature) {
-        // Perform spatial extraction over polygon
-        fetch('/api/climate/timeseries', {
+      if (currentNav === 'MON') {
+        // --- 1. CLIMATOLOGY (MON) -> SHOW COMBINED CHART DRAWER ---
+        if (chartDrawer) chartDrawer.classList.remove('hidden');
+
+        if (hitFeature) {
+          fetch('/api/climate/timeseries', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ geometry: hitFeature.geometry, name: hitFeature.name })
+          })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.error) return;
+              renderOmbrothermicFireChart('chart-plotly-target', data, { name: data.name });
+            })
+            .catch((err) => console.error('Error fetching polygon climate timeseries:', err));
+        } else {
+          fetch(`/api/climate/timeseries?lat=${lat}&lon=${lon}`)
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.error) return;
+              renderOmbrothermicFireChart('chart-plotly-target', data, { lat, lon, name: data.name });
+            })
+            .catch((err) => console.error('Error fetching point climate timeseries:', err));
+        }
+
+      } else if (currentNav === 'FOR') {
+        // --- 2. FORECAST (FOR) -> SHOW WIDE MODAL TABLE ---
+        const payload = hitFeature
+          ? { geometry: hitFeature.geometry, name: hitFeature.name }
+          : { lat: lat, lon: lon };
+
+        fetch('/api/forecast/summary', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            geometry: hitFeature.geometry,
-            name: hitFeature.name
-          })
+          body: JSON.stringify(payload)
         })
-          .then(res => res.json())
-          .then(data => {
-            if (data.error) return;
-            renderOmbrothermicFireChart('chart-plotly-target', data, { name: data.name });
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.status !== 'success') {
+              console.error('Forecast summary error:', data.error);
+              return;
+            }
+            renderForecastSummaryModal(data, {
+              lat: lat,
+              lon: lon,
+              name: hitFeature ? hitFeature.name : data.name
+            });
           })
-          .catch(err => console.error("Error fetching polygon timeseries:", err));
-
-      } else {
-        // Point extraction fallback
-        fetch(`/api/climate/timeseries?lat=${lat}&lon=${lon}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.error) return;
-            renderOmbrothermicFireChart('chart-plotly-target', data, { lat, lon, name: data.name });
-          })
-          .catch(err => console.error("Error fetching point timeseries:", err));
+          .catch((err) => console.error('Error fetching forecast summary:', err));
       }
     });
   };
@@ -218,6 +322,8 @@ export function setupMapClickEvents(mapLeft, mapRight) {
   mapLeft.on('click', handleMapClick);
   mapRight.on('click', handleMapClick);
 }
+
+
 
 export function loadActiveFires24h() {
   if (!fireLayerRight) return;
