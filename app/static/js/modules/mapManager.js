@@ -37,6 +37,11 @@ export function initMapsOnce(initialOpacity = 0.75, fireVisible = true) {
   rightTileLayer = L.tileLayer(darkTileUrl, { maxZoom: 18, attribution: attrib, opacity: initialOpacity }).addTo(mapRight);
   L.control.zoom({ position: 'topright' }).addTo(mapRight);
 
+  mapRight.createPane('topPolygonPane');
+  mapRight.getPane('topPolygonPane').style.zIndex = 650;
+  mapRight.getPane('topPolygonPane').style.pointerEvents = 'auto'; // Allows clicking/hovering on polygons
+
+
   fireLayerRight = L.layerGroup();
   if (fireVisible) fireLayerRight.addTo(mapRight);
   loadActiveFires24h();
@@ -91,6 +96,7 @@ export function toggleBoundaryLayer(selectedKey, isChecked) {
 
   if (boundaryLayers[selectedKey]) {
     boundaryLayers[selectedKey].addTo(mapRight);
+    boundaryLayers[selectedKey].bringToFront();
     return;
   }
 
@@ -106,7 +112,11 @@ export function toggleBoundaryLayer(selectedKey, isChecked) {
         ? { color: '#22c55e', weight: 1.5, fillColor: '#22c55e', fillOpacity: 0.25 }
         : { color: '#38bdf8', weight: 1.2, fillColor: 'transparent' };
 
-      const newLayer = L.geoJSON(geoJsonData, { style: layerStyle });
+      const newLayer = L.geoJSON(geoJsonData, { 
+        style: layerStyle,
+        pane: 'topPolygonPane' 
+      });
+      
       boundaryLayers[selectedKey] = newLayer;
       newLayer.addTo(mapRight);
     })
@@ -427,3 +437,4 @@ function findIntersectedFeature(latlng) {
 
   return null;
 }
+
