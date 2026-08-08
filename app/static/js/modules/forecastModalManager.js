@@ -42,7 +42,6 @@ function renderPlotlyGauges(fwiSeries, fopiSeries, selectedDay = 0) {
   const prevFwi = selectedDay > 0 ? fwiSeries[selectedDay - 1] : fwiVal;
   const prevFopi = selectedDay > 0 ? getFOPILevel(fopiSeries[selectedDay - 1]).val : fopiInfo.val;
 
-  // 1. FWI Gauge Specification
   const fwiData = [{
     type: "indicator",
     mode: "gauge+number+delta",
@@ -70,7 +69,6 @@ function renderPlotlyGauges(fwiSeries, fopiSeries, selectedDay = 0) {
     }
   }];
 
-  // 2. FOPI Gauge Specification
   const fopiData = [{
     type: "indicator",
     mode: "gauge+number+delta",
@@ -97,7 +95,6 @@ function renderPlotlyGauges(fwiSeries, fopiSeries, selectedDay = 0) {
     }
   }];
 
-  // Added padding top & bottom to prevent title/text clipping
   const layout = {
     width: 330,
     height: 200,
@@ -114,6 +111,71 @@ function renderPlotlyGauges(fwiSeries, fopiSeries, selectedDay = 0) {
 }
 
 /**
+ * Downloads the modal element as a PNG image using html2canvas
+ */
+function downloadSummaryAsPNG(locationName) {
+  const modalElem = document.getElementById('forecast-summary-modal');
+  if (!modalElem) return;
+
+  const downloadBtn = document.getElementById('download-forecast-modal-btn');
+  const originalBtnContent = downloadBtn ? downloadBtn.innerHTML : '';
+
+  if (downloadBtn) {
+    downloadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    downloadBtn.disabled = true;
+  }
+
+  // Temporarily adjust max-height so html2canvas captures full scrollable area
+  const origMaxHeight = modalElem.style.maxHeight;
+  const origOverflow = modalElem.style.overflowY;
+  modalElem.style.maxHeight = 'none';
+  modalElem.style.overflowY = 'visible';
+
+  // Check if html2canvas is available
+  if (typeof html2canvas === 'undefined') {
+    alert('html2canvas library is missing. Please ensure it is loaded in your index.html template.');
+    if (downloadBtn) {
+      downloadBtn.innerHTML = originalBtnContent;
+      downloadBtn.disabled = false;
+    }
+    return;
+  }
+
+  html2canvas(modalElem, {
+    backgroundColor: '#0f172a',
+    useCORS: true,
+    scale: 2, // High resolution PNG capture
+    logging: false
+  }).then(canvas => {
+    // Restore modal original dimensions
+    modalElem.style.maxHeight = origMaxHeight;
+    modalElem.style.overflowY = origOverflow;
+
+    if (downloadBtn) {
+      downloadBtn.innerHTML = originalBtnContent;
+      downloadBtn.disabled = false;
+    }
+
+    // Trigger PNG file download
+    const link = document.createElement('a');
+    const sanitizedName = (locationName || 'summary').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const timeStamp = new Date().toISOString().slice(0, 10);
+    
+    link.download = `fire_weather_summary_${sanitizedName}_${timeStamp}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }).catch(err => {
+    console.error('[Export Error] Failed to export PNG:', err);
+    modalElem.style.maxHeight = origMaxHeight;
+    modalElem.style.overflowY = origOverflow;
+    if (downloadBtn) {
+      downloadBtn.innerHTML = originalBtnContent;
+      downloadBtn.disabled = false;
+    }
+  });
+}
+
+/**
  * Generates automated alerts and operational advisories based on fire indicators & weather
  */
 function generateAdvisories(data) {
@@ -126,7 +188,6 @@ function generateAdvisories(data) {
   const temp = data.temperature || [0, 0, 0];
   const wind = data.wind || [0, 0, 0];
 
-  // 1. Active Fire Warnings
   const activeCount = fireInfo.active_count || 0;
   const minDist = fireInfo.min_distance_km;
 
@@ -135,18 +196,17 @@ function generateAdvisories(data) {
       type: 'danger',
       icon: 'fa-fire-flame-curved',
       title: 'CRITICAL: Active Fire Detected Within Selected Boundary',
-      desc: `NASA FIRMS detects <b>${activeCount} active hotspot(s)</b> currently inside this area. Immediate fire response, localized containment, and alert dispatch are strongly recommended.`
+      desc: `NASA FIRMS detects <b>${activeCount} active hotspot(s)</b> currently inside this area. Immediate fire response and localized containment are strongly recommended.`
     });
   } else if (minDist !== null && minDist <= 50.0) {
     alerts.push({
       type: 'warning',
       icon: 'fa-triangle-exclamation',
       title: 'WARNING: Active Fire Proximity (< 50 km)',
-      desc: `Detected active thermal anomaly approximately <b>${minDist.toFixed(1)} km</b> away. High risk of localized smoke transport and potential wildfire propagation if local wind speed increases.`
+      desc: `Detected active thermal anomaly approximately <b>${minDist.toFixed(1)} km</b> away. Risk of localized smoke transport and wildfire propagation if wind speed increases.`
     });
   }
 
-  // 2. Trend Escalation Warnings (3-day evaluation)
   const fwiIncreasing = fwi[2] > fwi[0] + 3.0 || fwi[1] > fwi[0] + 2.0;
   const fopiNorm = fopi.map(v => v > 1.0 ? v / 100.0 : v);
   const fopiIncreasing = fopiNorm[2] > fopiNorm[0] + 0.1 || fopiNorm[1] > fopiNorm[0] + 0.08;
@@ -156,11 +216,10 @@ function generateAdvisories(data) {
       type: 'warning',
       icon: 'fa-arrow-trend-up',
       title: 'ESCALATING RISK: Increasing Fire Hazards Expected Over Next 48 Hours',
-      desc: 'Model forecasts indicate an upward trend in Fire Weather Index / Probability over the 3-day forecast window. Field crews and regional authorities should prepare emergency response readiness for upcoming days.'
+      desc: 'Model forecasts indicate an upward trend in Fire Weather Index / Probability over the 3-day forecast window. Prepare emergency response readiness for upcoming days.'
     });
   }
 
-  // 3. High Hazard Weather & Fire Index Conditions
   const maxFwi = Math.max(...fwi);
   const maxFopi = Math.max(...fopiNorm);
 
@@ -169,10 +228,10 @@ function generateAdvisories(data) {
       type: 'danger',
       icon: 'fa-radiation',
       title: 'HIGH IGNITION HAZARD: Severe Fire Weather Profile',
-      desc: `Fire indices cross high risk thresholds (Max FWI: <b>${maxFwi.toFixed(1)}</b>, Max FOPI: <b>${(maxFopi * 100).toFixed(0)}%</b>). Atmospheric conditions favor rapid flame spread once ignited.`
+      desc: `Fire indices cross high risk thresholds (Max FWI: <b>${maxFwi.toFixed(1)}</b>, Max FOPI: <b>${(maxFopi * 100).toFixed(0)}%</b>). Atmospheric conditions favor rapid flame spread.`
     });
-    advisories.push('Enforce strict restrictions on controlled agricultural burning and open outdoor fires.');
-    advisories.push('Deploy continuous satellite & lookout monitoring across vulnerable forest/savannah zones.');
+    advisories.push('Enforce strict restrictions on controlled agricultural burning and outdoor fires.');
+    advisories.push('Deploy continuous satellite & lookout monitoring across vulnerable forest zones.');
   }
 
   if (Math.max(...temp) > 33.0 && Math.max(...wind) > 8.0) {
@@ -186,9 +245,6 @@ function generateAdvisories(data) {
   return { alerts, advisories };
 }
 
-/**
- * Attaches drag functionality to modal header
- */
 function makeDraggable(modal, handle) {
   handle.style.cursor = 'move';
   handle.addEventListener('mousedown', dragStart);
@@ -196,7 +252,7 @@ function makeDraggable(modal, handle) {
   document.addEventListener('mousemove', drag);
 
   function dragStart(e) {
-    if (e.target.closest('.forecast-modal-close') || e.target.closest('.day-tab-btn')) return;
+    if (e.target.closest('.forecast-modal-btn-action') || e.target.closest('.day-tab-btn')) return;
     initialX = e.clientX - xOffset;
     initialY = e.clientY - yOffset;
     if (e.target === handle || handle.contains(e.target)) {
@@ -250,21 +306,10 @@ function getOrCreateModal() {
       padding: 18px 22px;
       user-select: none;
     }
-    /* Custom Scrollbar Styling */
-    .forecast-modal::-webkit-scrollbar {
-      width: 6px;
-    }
-    .forecast-modal::-webkit-scrollbar-track {
-      background: rgba(15, 23, 42, 0.6);
-      border-radius: 4px;
-    }
-    .forecast-modal::-webkit-scrollbar-thumb {
-      background: rgba(100, 116, 139, 0.5);
-      border-radius: 4px;
-    }
-    .forecast-modal::-webkit-scrollbar-thumb:hover {
-      background: #38bdf8;
-    }
+    .forecast-modal::-webkit-scrollbar { width: 6px; }
+    .forecast-modal::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); border-radius: 4px; }
+    .forecast-modal::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.5); border-radius: 4px; }
+    .forecast-modal::-webkit-scrollbar-thumb:hover { background: #38bdf8; }
     .forecast-modal.hidden { display: none !important; }
     .forecast-modal-header {
       display: flex;
@@ -276,8 +321,21 @@ function getOrCreateModal() {
       cursor: move;
     }
     .forecast-modal-title { font-size: 15px; font-weight: 700; color: #38bdf8; }
-    .forecast-modal-close {
-      background: transparent; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;
+    .modal-actions { display: flex; align-items: center; gap: 8px; }
+    .forecast-modal-btn-action {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #94a3b8;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+    .forecast-modal-btn-action:hover {
+      color: #38bdf8;
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.1);
     }
     .gauges-wrapper {
       display: flex;
@@ -289,12 +347,7 @@ function getOrCreateModal() {
       padding: 10px 0;
       margin-bottom: 14px;
     }
-    .day-tabs {
-      display: flex;
-      gap: 8px;
-      justify-content: center;
-      margin-bottom: 10px;
-    }
+    .day-tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 10px; }
     .day-tab-btn {
       background: #1e293b;
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -306,17 +359,8 @@ function getOrCreateModal() {
       font-weight: 600;
       transition: all 0.2s;
     }
-    .day-tab-btn.active {
-      background: #0284c7;
-      color: #ffffff;
-      border-color: #38bdf8;
-    }
-    .forecast-metrics-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 14px;
-    }
+    .day-tab-btn.active { background: #0284c7; color: #ffffff; border-color: #38bdf8; }
+    .forecast-metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
     .forecast-card {
       background: rgba(30, 41, 59, 0.7);
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -339,8 +383,6 @@ function getOrCreateModal() {
     .forecast-table th { background: #1e293b; color: #cbd5e1; padding: 8px 10px; font-weight: 600; }
     .forecast-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); color: #e2e8f0; }
     .forecast-table td:first-child { text-align: left; font-weight: 600; color: #94a3b8; }
-    
-    /* Alert & Advisory Styling */
     .advisory-section {
       background: rgba(30, 41, 59, 0.4);
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -348,43 +390,12 @@ function getOrCreateModal() {
       padding: 12px 14px;
       margin-top: 10px;
     }
-    .advisory-title {
-      font-size: 13px;
-      font-weight: 700;
-      color: #f8fafc;
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .alert-box {
-      border-radius: 6px;
-      padding: 10px 12px;
-      margin-bottom: 10px;
-      font-size: 12px;
-      display: flex;
-      gap: 10px;
-      align-items: flex-start;
-    }
-    .alert-box.danger {
-      background: rgba(239, 68, 68, 0.15);
-      border: 1px solid rgba(239, 68, 68, 0.4);
-      color: #fca5a5;
-    }
-    .alert-box.warning {
-      background: rgba(245, 158, 11, 0.15);
-      border: 1px solid rgba(245, 158, 11, 0.4);
-      color: #fcd34d;
-    }
-    .advisory-list {
-      margin: 0;
-      padding-left: 18px;
-      font-size: 12px;
-      color: #cbd5e1;
-    }
-    .advisory-list li {
-      margin-bottom: 6px;
-    }
+    .advisory-title { font-size: 13px; font-weight: 700; color: #f8fafc; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .alert-box { border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; display: flex; gap: 10px; align-items: flex-start; }
+    .alert-box.danger { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; }
+    .alert-box.warning { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #fcd34d; }
+    .advisory-list { margin: 0; padding-left: 18px; font-size: 12px; color: #cbd5e1; }
+    .advisory-list li { margin-bottom: 6px; }
   `;
   document.head.appendChild(style);
   document.body.appendChild(modalContainer);
@@ -424,7 +435,6 @@ export function renderForecastSummaryModal(data, meta = {}) {
   const rain = rawRain.map(v => (v < 1.0 && v > 0.0 ? parseFloat((v * 1000).toFixed(2)) : parseFloat(v.toFixed(2))));
   const rh = rawRh.map(v => (v <= 1.0 && v > 0.0 ? parseFloat((v * 100).toFixed(1)) : parseFloat(v.toFixed(1))));
 
-  // Evaluate alerts & recommendations
   const { alerts, advisories } = generateAdvisories(data);
 
   let alertsHtml = '';
@@ -452,7 +462,14 @@ export function renderForecastSummaryModal(data, meta = {}) {
         <i class="fa-solid fa-gauge-high"></i> 
         <span>Fire Indices & 3-Day Weather Forecast</span>
       </div>
-      <button class="forecast-modal-close" id="close-forecast-modal-btn"><i class="fa-solid fa-xmark"></i></button>
+      <div class="modal-actions">
+        <button class="forecast-modal-btn-action" id="download-forecast-modal-btn" title="Download Summary as PNG">
+          <i class="fa-solid fa-download"></i>
+        </button>
+        <button class="forecast-modal-btn-action" id="close-forecast-modal-btn" title="Close">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
     </div>
 
     <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 10px;">
@@ -550,6 +567,11 @@ export function renderForecastSummaryModal(data, meta = {}) {
       renderPlotlyGauges(fwi, fopi, dayIndex);
     };
   });
+
+  // Attach Download PNG event listener
+  document.getElementById('download-forecast-modal-btn').onclick = () => {
+    downloadSummaryAsPNG(nameLabel);
+  };
 
   // Enable dragging & close handler
   makeDraggable(modal, document.getElementById('forecast-modal-header'));
