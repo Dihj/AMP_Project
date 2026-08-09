@@ -11,21 +11,77 @@ import {
 } from './modules/mapManager.js';
 import { state, renderUI, makeElementDraggable } from './modules/uiManager.js';
 
+// Global / Exported Theme Function (call this whenever you load/render Plotly charts)
+export function updatePlotlyTheme(theme = localStorage.getItem("theme") || "dark") {
+  const chartTarget = document.getElementById("chart-plotly-target");
+  
+  // Safely check if Plotly chart instance actually exists and is loaded
+  if (!chartTarget || !window.Plotly || !chartTarget.classList.contains('js-plotly-plot')) {
+    return;
+  }
+
+  const isLight = theme === "light";
+  const updateLayout = {
+    paper_bgcolor: "transparent",
+    plot_bgcolor: "transparent",
+    font: { color: isLight ? "#0f172a" : "#f8fafc" },
+    xaxis: { gridcolor: isLight ? "#cbd5e1" : "#334155" },
+    yaxis: { gridcolor: isLight ? "#cbd5e1" : "#334155" }
+  };
+
+  try {
+    Plotly.relayout(chartTarget, updateLayout);
+  } catch (err) {
+    console.warn("Plotly layout update deferred: chart not ready", err);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-    makeElementDraggable('#chart-container', '.chart-modal-header');
-});
+  // 1. Draggable Setup
+  makeElementDraggable('#chart-container', '.chart-modal-header');
 
-document.addEventListener("DOMContentLoaded", function () {
-
-  // DOM Handles
+  // 2. DOM Handles
   const navBtns = document.querySelectorAll('.nav-btn');
   const textDrawer = document.getElementById('text-drawer');
   const closeDrawerBtn = document.getElementById('close-drawer');
   const opacitySlider = document.getElementById('opacity-slider');
   const opacityVal = document.getElementById('opacity-val');
   const toggleFireBtn = document.getElementById('toggle-fire-btn');
+  const themeToggleBtn = document.getElementById("theme-toggle");
+  const themeIcon = document.getElementById("theme-icon");
 
-  // 1. Navigation Button Click Listeners (MON, FOR, About)
+  // 3. Theme Toggle Setup
+  const savedTheme = localStorage.getItem("theme");
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  let currentTheme = savedTheme || (prefersDark ? "dark" : "light");
+
+  function applyTheme(theme) {
+    if (theme === "light") {
+      document.documentElement.setAttribute("data-theme", "light");
+      themeIcon?.classList.remove("fa-moon");
+      themeIcon?.classList.add("fa-sun");
+    } else {
+      document.documentElement.removeAttribute("data-theme");
+      themeIcon?.classList.remove("fa-sun");
+      themeIcon?.classList.add("fa-moon");
+    }
+    localStorage.setItem("theme", theme);
+    
+    // Safely attempt Plotly theme update
+    updatePlotlyTheme(theme);
+  }
+
+  // Apply saved/default theme on boot
+  applyTheme(currentTheme);
+
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener("click", () => {
+      currentTheme = currentTheme === "dark" ? "light" : "dark";
+      applyTheme(currentTheme);
+    });
+  }
+
+  // 4. Navigation Button Click Listeners (MON, FOR, About)
   navBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       navBtns.forEach(b => b.classList.remove('active'));
@@ -51,12 +107,11 @@ document.addEventListener("DOMContentLoaded", function () {
         clearRasterLayer();
       }
 
-      // renderUI() handles fetching and rendering layer maps for all modes
       renderUI();
     });
   });
 
-  // 2. Close Drawer Button Listener
+  // 5. Close Drawer Button Listener
   if (closeDrawerBtn) {
     closeDrawerBtn.addEventListener('click', () => {
       if (textDrawer) textDrawer.classList.add('hidden');
@@ -64,7 +119,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  // 3. Opacity Slider Listener
+  // 6. Opacity Slider Listener
   if (opacitySlider) {
     opacitySlider.addEventListener('input', (e) => {
       const val = e.target.value;
@@ -74,7 +129,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  // 4. Toggle Fire Button Listener
+  // 7. Toggle Fire Button Listener
   if (toggleFireBtn) {
     toggleFireBtn.addEventListener('click', () => {
       state.fireVisible = !state.fireVisible;
@@ -87,7 +142,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  // 5. Boundary Layer Checkbox Listeners
+  // 8. Boundary Layer Checkbox Listeners
   document.querySelectorAll('.layer-checkbox').forEach(chk => {
     chk.addEventListener('change', (e) => {
       const layerKey = e.target.dataset.layer;
@@ -102,3 +157,4 @@ document.addEventListener("DOMContentLoaded", function () {
   initMapsOnce(state.currentOpacity, state.fireVisible);
   renderUI();
 });
+

@@ -27,17 +27,42 @@ const boundaryGeoData = {
 export function getMapLeft() { return mapLeft; }
 export function getMapRight() { return mapRight; }
 
+// Basemap Tile URLs for Dark and Light modes
+const TILE_URLS = {
+  dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  light: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png' 
+};
+
+function isLightMode() {
+  return document.documentElement.classList.contains('light') || 
+         document.body.classList.contains('light-mode') || 
+         document.documentElement.getAttribute('data-theme') === 'light';
+}
+
+/**
+ * Live Theme Switcher: Call this or let the MutationObserver update tiles automatically
+ */
+export function updateMapTheme() {
+  if (!leftTileLayer || !rightTileLayer) return;
+
+  const newTileUrl = isLightMode() ? TILE_URLS.light : TILE_URLS.dark;
+
+  leftTileLayer.setUrl(newTileUrl);
+  rightTileLayer.setUrl(newTileUrl);
+}
+
 export function initMapsOnce(initialOpacity = 0.75, fireVisible = true) {
   const initialCenter = [-18.7, 46.8];
   const initialZoom = 6;
-  const darkTileUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-  const attrib = '&copy; CARTO';
+  const attrib = '&copy; <a href="https://carto.com/">CARTO</a>';
+
+  const currentTileUrl = isLightMode() ? TILE_URLS.light : TILE_URLS.dark;
 
   mapLeft = L.map('map-left', { zoomControl: false, attributionControl: false }).setView(initialCenter, initialZoom);
-  leftTileLayer = L.tileLayer(darkTileUrl, { maxZoom: 18, attribution: attrib, opacity: initialOpacity }).addTo(mapLeft);
+  leftTileLayer = L.tileLayer(currentTileUrl, { maxZoom: 18, attribution: attrib, opacity: initialOpacity }).addTo(mapLeft);
 
   mapRight = L.map('map-right', { zoomControl: false, attributionControl: false }).setView(initialCenter, initialZoom);
-  rightTileLayer = L.tileLayer(darkTileUrl, { maxZoom: 18, attribution: attrib, opacity: initialOpacity }).addTo(mapRight);
+  rightTileLayer = L.tileLayer(currentTileUrl, { maxZoom: 18, attribution: attrib, opacity: initialOpacity }).addTo(mapRight);
   L.control.zoom({ position: 'topright' }).addTo(mapRight);
 
   // 1. Pane for Climate Rasters (Sits BELOW admin lines)
@@ -55,7 +80,7 @@ export function initMapsOnce(initialOpacity = 0.75, fireVisible = true) {
   mapRight.getPane('adminLinesPane').style.zIndex = 640; 
   mapRight.getPane('adminLinesPane').style.pointerEvents = 'none';
 
-  // Aleo asiana FirePane ihany koa mba haahtong azy eo aloha foana
+  // Pane for active fires
   mapRight.createPane('firePane'); 
   mapRight.getPane('firePane').style.zIndex = 620; 
 
@@ -413,3 +438,16 @@ function loadDistrictBoundaries() {
     });
 }
 
+// Automatic theme change observer (switches tiles when <html> or <body> theme classes change)
+const themeObserver = new MutationObserver((mutations) => {
+  mutations.forEach((mutation) => {
+    if (mutation.attributeName === 'class' || mutation.attributeName === 'data-theme') {
+      updateMapTheme();
+    }
+  });
+});
+
+themeObserver.observe(document.documentElement, {
+  attributes: true,
+  attributeFilter: ['class', 'data-theme']
+});

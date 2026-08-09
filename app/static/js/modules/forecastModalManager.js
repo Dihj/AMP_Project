@@ -6,6 +6,15 @@ let currentX, currentY, initialX, initialY;
 let xOffset = 0, yOffset = 0;
 
 /**
+ * Helper: Detects whether the page is currently in Light Mode
+ */
+function isLightMode() {
+  return document.documentElement.classList.contains('light') || 
+         document.body.classList.contains('light-mode') || 
+         document.documentElement.getAttribute('data-theme') === 'light';
+}
+
+/**
  * Helper: Classifies FWI numerical values into text risk levels & colors
  */
 function getFWILevel(val) {
@@ -30,9 +39,18 @@ function getFOPILevel(val) {
 }
 
 /**
- * Renders Plotly.js Gauge Barometer with extra padding for labels & title
+ * Renders Plotly.js Gauge Barometer with theme-adaptive colors
  */
 function renderPlotlyGauges(fwiSeries, fopiSeries, selectedDay = 0) {
+  const light = isLightMode();
+
+  // Dynamic Theme Palette
+  const textColor = light ? '#0f172a' : '#ffffff';
+  const titleColor = light ? '#1e293b' : '#f8fafc';
+  const tickColor = light ? '#64748b' : '#94a3b8';
+  const gaugeBg = light ? 'rgba(241, 245, 249, 0.8)' : 'rgba(30, 41, 59, 0.5)';
+  const gaugeBorder = light ? '#cbd5e1' : '#334155';
+
   const fwiVal = fwiSeries[selectedDay] || 0;
   const rawFopiVal = fopiSeries[selectedDay] || 0;
   
@@ -48,16 +66,16 @@ function renderPlotlyGauges(fwiSeries, fopiSeries, selectedDay = 0) {
     value: fwiVal,
     title: { 
       text: `<b>FWI Category: <span style="color:${fwiInfo.color};">${fwiInfo.label}</span></b>`, 
-      font: { size: 14, color: "#f8fafc" },
+      font: { size: 14, color: titleColor },
       padding: { bottom: 12, top: 10 }
     },
     delta: { reference: prevFwi, increasing: { color: "#ef4444" }, decreasing: { color: "#22c55e" } },
-    number: { font: { size: 22, color: "#ffffff" } },
+    number: { font: { size: 22, color: textColor } },
     gauge: {
-      axis: { range: [0, 60], tickwidth: 1, tickcolor: "#94a3b8", dtick: 10 },
+      axis: { range: [0, 60], tickwidth: 1, tickcolor: tickColor, dtick: 10 },
       bar: { color: fwiInfo.color, thickness: 0.35 },
-      bgcolor: "rgba(30, 41, 59, 0.5)",
-      bordercolor: "#334155",
+      bgcolor: gaugeBg,
+      bordercolor: gaugeBorder,
       steps: [
         { range: [0, 5], color: "rgba(34, 197, 94, 0.25)" },
         { range: [5, 11], color: "rgba(234, 179, 8, 0.25)" },
@@ -75,16 +93,16 @@ function renderPlotlyGauges(fwiSeries, fopiSeries, selectedDay = 0) {
     value: fopiInfo.val,
     title: { 
       text: `<b>FOPI Category: <span style="color:${fopiInfo.color};">${fopiInfo.label}</span></b>`, 
-      font: { size: 14, color: "#f8fafc" },
+      font: { size: 14, color: titleColor },
       padding: { bottom: 12, top: 10 }
     },
     delta: { reference: prevFopi, valueformat: ".2f", increasing: { color: "#ef4444" }, decreasing: { color: "#22c55e" } },
-    number: { valueformat: ".2f", font: { size: 22, color: "#ffffff" } },
+    number: { valueformat: ".2f", font: { size: 22, color: textColor } },
     gauge: {
-      axis: { range: [0, 1.0], tickwidth: 1, tickcolor: "#94a3b8", dtick: 0.2 },
+      axis: { range: [0, 1.0], tickwidth: 1, tickcolor: tickColor, dtick: 0.2 },
       bar: { color: fopiInfo.color, thickness: 0.35 },
-      bgcolor: "rgba(30, 41, 59, 0.5)",
-      bordercolor: "#334155",
+      bgcolor: gaugeBg,
+      bordercolor: gaugeBorder,
       steps: [
         { range: [0, 0.2], color: "rgba(34, 197, 94, 0.25)" },
         { range: [0.2, 0.4], color: "rgba(234, 179, 8, 0.25)" },
@@ -111,7 +129,7 @@ function renderPlotlyGauges(fwiSeries, fopiSeries, selectedDay = 0) {
 }
 
 /**
- * Downloads the modal element as a PNG image using html2canvas
+ * Downloads the modal element as a PNG image using html2canvas with dynamic theme background
  */
 function downloadSummaryAsPNG(locationName) {
   const modalElem = document.getElementById('forecast-summary-modal');
@@ -125,15 +143,14 @@ function downloadSummaryAsPNG(locationName) {
     downloadBtn.disabled = true;
   }
 
-  // Temporarily adjust max-height so html2canvas captures full scrollable area
+  // Adjust max-height so html2canvas captures full scrollable area
   const origMaxHeight = modalElem.style.maxHeight;
   const origOverflow = modalElem.style.overflowY;
   modalElem.style.maxHeight = 'none';
   modalElem.style.overflowY = 'visible';
 
-  // Check if html2canvas is available
   if (typeof html2canvas === 'undefined') {
-    alert('html2canvas library is missing. Please ensure it is loaded in your index.html template.');
+    alert('html2canvas library is missing.');
     if (downloadBtn) {
       downloadBtn.innerHTML = originalBtnContent;
       downloadBtn.disabled = false;
@@ -141,13 +158,15 @@ function downloadSummaryAsPNG(locationName) {
     return;
   }
 
+  // Detect active background color dynamically
+  const canvasBgColor = isLightMode() ? '#ffffff' : '#0f172a';
+
   html2canvas(modalElem, {
-    backgroundColor: '#0f172a',
+    backgroundColor: canvasBgColor,
     useCORS: true,
-    scale: 2, // High resolution PNG capture
+    scale: 2,
     logging: false
   }).then(canvas => {
-    // Restore modal original dimensions
     modalElem.style.maxHeight = origMaxHeight;
     modalElem.style.overflowY = origOverflow;
 
@@ -156,7 +175,6 @@ function downloadSummaryAsPNG(locationName) {
       downloadBtn.disabled = false;
     }
 
-    // Trigger PNG file download
     const link = document.createElement('a');
     const sanitizedName = (locationName || 'summary').replace(/[^a-z0-9]/gi, '_').toLowerCase();
     const timeStamp = new Date().toISOString().slice(0, 10);
@@ -176,7 +194,7 @@ function downloadSummaryAsPNG(locationName) {
 }
 
 /**
- * Generates automated alerts and operational advisories based on fire indicators & weather
+ * Generates automated alerts and operational advisories
  */
 function generateAdvisories(data) {
   const alerts = [];
@@ -285,8 +303,33 @@ function getOrCreateModal() {
   modalContainer.id = 'forecast-summary-modal';
   modalContainer.className = 'forecast-modal hidden';
 
+  // CSS structure using CSS variables with fallback dark defaults
   const style = document.createElement('style');
   style.textContent = `
+    :root {
+      --modal-bg: #0f172a;
+      --modal-border: rgba(255, 255, 255, 0.15);
+      --modal-text: #f8fafc;
+      --modal-subtext: #94a3b8;
+      --modal-card-bg: rgba(30, 41, 59, 0.7);
+      --modal-card-border: rgba(255, 255, 255, 0.08);
+      --modal-table-header: #1e293b;
+      --modal-table-row: #e2e8f0;
+      --modal-tab-bg: #1e293b;
+    }
+
+    html.light, body.light-mode, [data-theme="light"] {
+      --modal-bg: #ffffff;
+      --modal-border: #e2e8f0;
+      --modal-text: #0f172a;
+      --modal-subtext: #64748b;
+      --modal-card-bg: #f8fafc;
+      --modal-card-border: #e2e8f0;
+      --modal-table-header: #f1f5f9;
+      --modal-table-row: #334155;
+      --modal-tab-bg: #f1f5f9;
+    }
+
     .forecast-modal {
       position: fixed;
       top: 50%;
@@ -296,36 +339,35 @@ function getOrCreateModal() {
       max-width: 92vw;
       max-height: 85vh;
       overflow-y: auto;
-      background: #0f172a;
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: var(--modal-bg);
+      border: 1px solid var(--modal-border);
       border-radius: 12px;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
       z-index: 2000;
-      color: #f8fafc;
+      color: var(--modal-text);
       font-family: system-ui, -apple-system, sans-serif;
       padding: 18px 22px;
       user-select: none;
     }
     .forecast-modal::-webkit-scrollbar { width: 6px; }
-    .forecast-modal::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); border-radius: 4px; }
+    .forecast-modal::-webkit-scrollbar-track { background: transparent; }
     .forecast-modal::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.5); border-radius: 4px; }
-    .forecast-modal::-webkit-scrollbar-thumb:hover { background: #38bdf8; }
     .forecast-modal.hidden { display: none !important; }
     .forecast-modal-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      border-bottom: 1px solid var(--modal-border);
       padding-bottom: 10px;
       margin-bottom: 12px;
       cursor: move;
     }
-    .forecast-modal-title { font-size: 15px; font-weight: 700; color: #38bdf8; }
+    .forecast-modal-title { font-size: 15px; font-weight: 700; color: #0284c7; }
     .modal-actions { display: flex; align-items: center; gap: 8px; }
     .forecast-modal-btn-action {
       background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: #94a3b8;
+      border: 1px solid var(--modal-border);
+      color: var(--modal-subtext);
       font-size: 14px;
       cursor: pointer;
       padding: 4px 8px;
@@ -333,25 +375,25 @@ function getOrCreateModal() {
       transition: all 0.2s;
     }
     .forecast-modal-btn-action:hover {
-      color: #38bdf8;
-      border-color: #38bdf8;
+      color: #0284c7;
+      border-color: #0284c7;
       background: rgba(56, 189, 248, 0.1);
     }
     .gauges-wrapper {
       display: flex;
       justify-content: space-around;
       align-items: center;
-      background: rgba(30, 41, 59, 0.6);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: var(--modal-card-bg);
+      border: 1px solid var(--modal-card-border);
       border-radius: 10px;
       padding: 10px 0;
       margin-bottom: 14px;
     }
     .day-tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 10px; }
     .day-tab-btn {
-      background: #1e293b;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: #94a3b8;
+      background: var(--modal-tab-bg);
+      border: 1px solid var(--modal-border);
+      color: var(--modal-subtext);
       padding: 5px 16px;
       border-radius: 6px;
       cursor: pointer;
@@ -362,39 +404,39 @@ function getOrCreateModal() {
     .day-tab-btn.active { background: #0284c7; color: #ffffff; border-color: #38bdf8; }
     .forecast-metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
     .forecast-card {
-      background: rgba(30, 41, 59, 0.7);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: var(--modal-card-bg);
+      border: 1px solid var(--modal-card-border);
       border-radius: 8px;
       padding: 10px 12px;
     }
-    .forecast-card-label { font-size: 11px; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px; }
+    .forecast-card-label { font-size: 11px; text-transform: uppercase; color: var(--modal-subtext); margin-bottom: 4px; }
     .forecast-card-value { font-size: 12px; font-weight: 600; }
     .forecast-table {
       width: 100%;
       border-collapse: collapse;
       font-size: 12px;
       text-align: center;
-      background: rgba(30, 41, 59, 0.5);
+      background: var(--modal-card-bg);
       border-radius: 8px;
       overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--modal-card-border);
       margin-bottom: 16px;
     }
-    .forecast-table th { background: #1e293b; color: #cbd5e1; padding: 8px 10px; font-weight: 600; }
-    .forecast-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); color: #e2e8f0; }
-    .forecast-table td:first-child { text-align: left; font-weight: 600; color: #94a3b8; }
+    .forecast-table th { background: var(--modal-table-header); color: var(--modal-text); padding: 8px 10px; font-weight: 600; }
+    .forecast-table td { padding: 8px 10px; border-bottom: 1px solid var(--modal-card-border); color: var(--modal-table-row); }
+    .forecast-table td:first-child { text-align: left; font-weight: 600; color: var(--modal-subtext); }
     .advisory-section {
-      background: rgba(30, 41, 59, 0.4);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: var(--modal-card-bg);
+      border: 1px solid var(--modal-card-border);
       border-radius: 8px;
       padding: 12px 14px;
       margin-top: 10px;
     }
-    .advisory-title { font-size: 13px; font-weight: 700; color: #f8fafc; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .advisory-title { font-size: 13px; font-weight: 700; color: var(--modal-text); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
     .alert-box { border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; display: flex; gap: 10px; align-items: flex-start; }
-    .alert-box.danger { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; }
-    .alert-box.warning { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #fcd34d; }
-    .advisory-list { margin: 0; padding-left: 18px; font-size: 12px; color: #cbd5e1; }
+    .alert-box.danger { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #ef4444; }
+    .alert-box.warning { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #d97706; }
+    .advisory-list { margin: 0; padding-left: 18px; font-size: 12px; color: var(--modal-subtext); }
     .advisory-list li { margin-bottom: 6px; }
   `;
   document.head.appendChild(style);
@@ -419,7 +461,7 @@ export function renderForecastSummaryModal(data, meta = {}) {
     if (active_count > 0 && min_distance_km === 0) {
       fireHtml = `<span style="color: #ef4444;"><i class="fa-solid fa-fire-flame-curved"></i> <b>${active_count} active fire(s)</b> inside boundary</span>`;
     } else if (min_distance_km !== null && min_distance_km !== undefined) {
-      fireHtml = `<span style="color: #f59e0b;"><i class="fa-solid fa-fire"></i> <b>${active_count} fire(s)</b> nearby. Nearest: <b>${min_distance_km.toFixed(1)} km</b></span>`;
+      fireHtml = `<span style="color: #d97706;"><i class="fa-solid fa-fire"></i> <b>${active_count} fire(s)</b> nearby. Nearest: <b>${min_distance_km.toFixed(1)} km</b></span>`;
     } else {
       fireHtml = `<span style="color: #22c55e;"><i class="fa-solid fa-shield-halved"></i> No active fires detected (< 50 km)</span>`;
     }
@@ -472,8 +514,8 @@ export function renderForecastSummaryModal(data, meta = {}) {
       </div>
     </div>
 
-    <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 10px;">
-      <i class="fa-solid fa-location-dot" style="color: #38bdf8;"></i> <b>Location:</b> ${nameLabel} ${isPolygon ? '(Area Avg)' : ''}
+    <div style="font-size: 12px; color: var(--modal-subtext); margin-bottom: 10px;">
+      <i class="fa-solid fa-location-dot" style="color: #0284c7;"></i> <b>Location:</b> ${nameLabel} ${isPolygon ? '(Area Avg)' : ''}
     </div>
 
     <!-- Day Selector Tabs -->
@@ -521,7 +563,7 @@ export function renderForecastSummaryModal(data, meta = {}) {
           <td><b>${temp[2]} °C</b></td>
         </tr>
         <tr>
-          <td><i class="fa-solid fa-cloud-showers-heavy" style="color: #38bdf8;"></i> Rainfall</td>
+          <td><i class="fa-solid fa-cloud-showers-heavy" style="color: #0284c7;"></i> Rainfall</td>
           <td><b>${rain[0]} mm</b></td>
           <td><b>${rain[1]} mm</b></td>
           <td><b>${rain[2]} mm</b></td>
@@ -544,7 +586,7 @@ export function renderForecastSummaryModal(data, meta = {}) {
     <!-- Automated Advisories & Actionable Warnings -->
     <div class="advisory-section">
       <div class="advisory-title">
-        <i class="fa-solid fa-bell-concierge" style="color: #f59e0b;"></i>
+        <i class="fa-solid fa-bell-concierge" style="color: #d97706;"></i>
         <span>Automated Risk Assessment & Actionable Advisories</span>
       </div>
       ${alertsHtml}

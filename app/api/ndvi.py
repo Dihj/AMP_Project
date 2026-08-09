@@ -253,3 +253,4 @@ def get_ndvi_plot():
     except Exception as e:
         logger.error(f"Failed to generate NDVI plot: {e}", exc_info=True)
         return jsonify({"status": "error", "error": str(e)}), 500
+    
