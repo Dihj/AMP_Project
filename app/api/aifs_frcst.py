@@ -29,7 +29,10 @@ AIFS_CACHE = {"last_fetched": 0, "dataset": None}
 PLOT_CACHE = {}  # Caches final JSON responses: key = f"{var_name}_{day_num}"
 GEOMETRY_MASK_CACHE = None  # Caches spatial mask so geometry_mask runs only ONCE
 
-DEBUG_MODE = True  # Set to False in production
+# NOTE: was hardcoded to True, which permanently disabled cache refresh (CACHE_TTL
+# became dead code) once a Zarr file existed on disk. Now driven by an env var so
+# it can't accidentally ship "stuck" in debug mode.
+DEBUG_MODE = os.environ.get("FIRE_APP_DEBUG", "false").strip().lower() in ("1", "true", "yes")
 CACHE_TTL = 43200  # 12 hours
 
 FORECAST_DIR = os.path.join("data", "forecast")
@@ -52,7 +55,12 @@ def clear_zarr_encodings(dataset):
 
 
 def calculate_relative_humidity(t2m_c, d2m_c):
-    """Calculates Relative Humidity (%) using August-Roche-Magnus formula with direct Celsius inputs."""
+    """Calculates Relative Humidity (%) using the August-Roche-Magnus formula.
+
+    Inputs must be degrees Celsius. Per the AIFS data catalog, both
+    temperature_2m and dew_point_temperature_2m are already reported in
+    degree_Celsius, so no unit conversion is needed before calling this.
+    """
     e = 6.112 * np.exp((17.67 * d2m_c) / (d2m_c + 243.5))
     es = 6.112 * np.exp((17.67 * t2m_c) / (t2m_c + 243.5))
     rh = (e / es) * 100.0
@@ -166,22 +174,49 @@ def download_and_save_aifs():
     loaded_ds = regional_ds.load()
     loaded_ds = clear_zarr_encodings(loaded_ds)
 
-    # 1. Temperature in °C
+    # 1. Temperature in degC
+    # Per the AIFS data catalog, temperature_2m is ALREADY degree_Celsius -
+    # no Kelvin conversion needed. (Previously this was assumed/guessed at
+    # runtime via a ">200" heuristic in the FWI calc script - that heuristic
+    # is now removed there too, since the units are confirmed at the source.)
     if "temperature_2m" in loaded_ds:
         loaded_ds["temp_2m_celsius"] = loaded_ds["temperature_2m"]
-        loaded_ds["temp_2m_celsius"].attrs["units"] = "°C"
+        loaded_ds["temp_2m_celsius"].attrs["units"] = "degC"
 
-    # 2. Relative Humidity (%)
+    # 2. Relative Humidity (%) - t2m/d2m are already Celsius, so no conversion
+    # is required before calling calculate_relative_humidity().
     if "temperature_2m" in loaded_ds and "dew_point_temperature_2m" in loaded_ds:
         loaded_ds["relative_humidity_2m"] = calculate_relative_humidity(
             loaded_ds["temperature_2m"], loaded_ds["dew_point_temperature_2m"]
         )
         loaded_ds["relative_humidity_2m"].attrs["units"] = "%"
 
-    # 3. Surface Precipitation in mm
+    # 3. Precipitation in mm (CUMULATIVE since init_time)
+    # Per the AIFS data catalog, precipitation_surface is in kg m-2 s-1, described
+    # as "average precipitation rate since the previous forecast step" - i.e. a
+    # RATE (equivalent to mm/s), not an accumulated total, and NOT in meters.
+    # The previous `* 1000.0` conversion was wrong on both counts.
+    #
+    # To get a correct, monotonically increasing cumulative mm field (which the
+    # existing /plot "Total Rainfall" route relies on via max(lead_time) -
+    # min(lead_time)), we convert each step's rate to the mm that fell during
+    # that step's duration, then take a running cumulative sum.
     if "precipitation_surface" in loaded_ds:
-        loaded_ds["precipitation_surface_mm"] = loaded_ds["precipitation_surface"] * 1000.0
+        lead_seconds = loaded_ds["lead_time"].values.astype("timedelta64[s]").astype(np.float64)
+        # Duration (s) covered by each step's "average rate since previous step".
+        # First step's duration is assumed to run from init_time (t=0) to itself.
+        step_duration_s = np.diff(lead_seconds, prepend=0.0)
+        step_duration_da = xr.DataArray(
+            step_duration_s, coords={"lead_time": loaded_ds["lead_time"]}, dims=["lead_time"]
+        )
+
+        precip_step_mm = loaded_ds["precipitation_surface"] * step_duration_da
+        loaded_ds["precipitation_surface_mm"] = precip_step_mm.cumsum(dim="lead_time")
         loaded_ds["precipitation_surface_mm"].attrs["units"] = "mm"
+        loaded_ds["precipitation_surface_mm"].attrs["description"] = (
+            "Cumulative precipitation (mm) since forecast init_time, derived from "
+            "the average precipitation rate (kg m-2 s-1) reported per forecast step."
+        )
 
     # 4. Wind speed in m/s
     if "wind_u_10m" in loaded_ds and "wind_v_10m" in loaded_ds:
@@ -317,9 +352,16 @@ def get_forecast_plot():
         min_lat, max_lat = float(np.min(lats)), float(np.max(lats))
         min_lon, max_lon = float(np.min(lons)), float(np.max(lons))
 
+        # lats/lons are pixel CENTERS, but Leaflet's ImageOverlay bounds are
+        # pixel EDGES. Using center min/max directly shifts the whole raster
+        # by half a pixel relative to true geographic points (e.g. FIRMS
+        # active-fire markers plotted from raw lat/lon).
+        lat_res = float(np.abs(np.mean(np.diff(lats)))) if len(lats) > 1 else 0.0
+        lon_res = float(np.abs(np.mean(np.diff(lons)))) if len(lons) > 1 else 0.0
+
         bounds = [
-            [min_lat, min_lon],  # [South, West]
-            [max_lat, max_lon],  # [North, East]
+            [min_lat - lat_res / 2, min_lon - lon_res / 2],  # [South, West]
+            [max_lat + lat_res / 2, max_lon + lon_res / 2],  # [North, East]
         ]
 
         data_vals = field.values
@@ -344,7 +386,7 @@ def get_forecast_plot():
             norm=norm,
             origin="upper",
             aspect="auto",
-            interpolation="nearest",  # Faster rendering since array is already 0.05° interpolated
+            interpolation="bilinear",  # Nearest is Faster rendering since array is already 0.05° interpolated, but maybe bilinear is better
         )
 
         buf = io.BytesIO()
