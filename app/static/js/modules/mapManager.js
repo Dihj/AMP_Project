@@ -383,7 +383,7 @@ function loadDistrictBoundaries() {
     .then(geojsonData => {
       const visualOnlyStyle = {
         color: '#ffffff',       // Crisp white district lines
-        weight: 0.8,            
+        weight: 0.5,            
         opacity: 0.5,           
         fillOpacity: 0.0,       
         interactive: false      
