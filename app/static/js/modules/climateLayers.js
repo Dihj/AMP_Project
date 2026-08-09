@@ -94,10 +94,11 @@ export function updateLeftClimateLayer(mapLeft, parameter, timeStep, fixedScale 
 
         clearLeftClimateLayer(mapLeft);
 
+        // --- FIXED HERE: Assign leftClimatePane to L.imageOverlay ---
         leftClimateOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
           opacity: 0.8,
           interactive: false,
-          zIndex: 400
+          pane: 'leftClimatePane' // Sits on z-index 350, underneath adminLinesPane (z-index 640)
         });
         leftClimateOverlay.addTo(mapLeft);
 
@@ -141,10 +142,10 @@ export function updateRightClimateLayer(mapRight, parameter = 'Fire', timeStep, 
 
         clearRightClimateLayer(mapRight);
 
+        // --- OPTIONAL: Assign right map climate pane if needed ---
         rightClimateOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
           opacity: 0.8,
-          interactive: false,
-          zIndex: 400
+          interactive: false
         });
         rightClimateOverlay.addTo(mapRight);
 
@@ -197,3 +198,4 @@ function createLegendControl(data, fixedScale, position) {
 
   return legendControl;
 }
+

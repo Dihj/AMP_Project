@@ -101,10 +101,17 @@ export function updateLeftForecastLayer(mapLeft, parameter = 'temp', day = 0) {
 
         clearLeftForecastLayer(mapLeft);
 
+        // Ensure left raster pane exists
+        if (!mapLeft.getPane('leftClimatePane')) {
+          mapLeft.createPane('leftClimatePane');
+          mapLeft.getPane('leftClimatePane').style.zIndex = 350;
+        }
+
+        // Render overlay in background pane (z-index: 350)
         leftForecastOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
           opacity: 0.8,
           interactive: false,
-          zIndex: 400
+          pane: 'leftClimatePane'
         });
         leftForecastOverlay.addTo(mapLeft);
 
@@ -163,10 +170,17 @@ export function updateRightForecastLayer(mapRight, parameter = 'temp', day = 0) 
 
         clearRightForecastLayer(mapRight);
 
+        // Ensure right raster pane exists below active fire markers
+        if (!mapRight.getPane('rightClimatePane')) {
+          mapRight.createPane('rightClimatePane');
+          mapRight.getPane('rightClimatePane').style.zIndex = 350;
+        }
+
+        // Render overlay in background pane (z-index: 350)
         rightForecastOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
           opacity: 0.8,
           interactive: false,
-          zIndex: 400
+          pane: 'rightClimatePane'
         });
         rightForecastOverlay.addTo(mapRight);
 

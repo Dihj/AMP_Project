@@ -34,7 +34,7 @@ def get_geojson_from_shapefile(layer_key, base_dir='./data'):
             gdf = gdf.to_crs(epsg=4326)
     except Exception as e: 
         print(f'[{layer_key}] Warinig during CRS transfromation: {e}')
-        gsf = gdf.set_crs(epsg=4326, allow_override=True)
+        gdf = gdf.set_crs(epsg=4326, allow_override=True)
 
     return gdf.__geo_interface__
 
