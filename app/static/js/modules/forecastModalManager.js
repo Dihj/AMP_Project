@@ -15,15 +15,22 @@ function isLightMode() {
 }
 
 /**
- * Helper: Classifies FWI numerical values into text risk levels & colors
+ * Helper: Classifies FWI numerical values into text risk levels & colors.
+ *
+ * Matches the FWI gauge's own colored steps (see renderPlotlyGauges below)
+ * and fire_indices.py's map classification exactly - all three must stay
+ * in sync, since previously this used a different set of breakpoints
+ * (5/11/19/30/50) than the gauge steps it sat right next to
+ * (11.2/21.3/38.0/50.0/70.0/80.0), so the badge label and the gauge could
+ * disagree about a value's category.
  */
 function getFWILevel(val) {
-  if (val < 5.0) return { label: 'Low', color: '#22c55e' };
-  if (val < 11.0) return { label: 'Moderate', color: '#eab308' };
-  if (val < 19.0) return { label: 'High', color: '#f97316' };
-  if (val < 30.0) return { label: 'Very High', color: '#ef4444' };
-  if (val < 50.0) return { label: 'Extreme', color: '#a855f7' };
-  return { label: 'Extreme+', color: '#ec4899' };
+  if (val < 11.2) return { label: 'Low', color: '#98FBB2' };
+  if (val < 21.3) return { label: 'Moderate', color: '#D2E351' };
+  if (val < 38.0) return { label: 'High', color: '#E6A900' };
+  if (val < 50.0) return { label: 'Very High', color: '#D66610' };
+  if (val < 70.0) return { label: 'Extreme', color: '#B4070C' };
+  return { label: 'Extreme+', color: '#320212' };
 }
 
 /**
@@ -72,17 +79,23 @@ function renderPlotlyGauges(fwiSeries, fopiSeries, selectedDay = 0) {
     delta: { reference: prevFwi, increasing: { color: "#ef4444" }, decreasing: { color: "#22c55e" } },
     number: { font: { size: 22, color: textColor } },
     gauge: {
-      axis: { range: [0, 60], tickwidth: 1, tickcolor: tickColor, dtick: 10 },
+      // Axis now covers the FULL step range (0-80) - previously capped at
+      // 60, which meant the two most severe bands (Extreme, Extreme+)
+      // never actually rendered on the dial even though they were defined
+      // below.
+      axis: { range: [0, 80], tickwidth: 1, tickcolor: tickColor, dtick: 10 },
       bar: { color: fwiInfo.color, thickness: 0.35 },
       bgcolor: gaugeBg,
       bordercolor: gaugeBorder,
+      // Official FWI scale - keep in sync with getFWILevel() above and
+      // fire_indices.py's map classification.
       steps: [
-        { range: [0, 5], color: "rgba(34, 197, 94, 0.25)" },
-        { range: [5, 11], color: "rgba(234, 179, 8, 0.25)" },
-        { range: [11, 19], color: "rgba(249, 115, 22, 0.25)" },
-        { range: [19, 30], color: "rgba(239, 68, 68, 0.25)" },
-        { range: [30, 50], color: "rgba(168, 85, 247, 0.25)" },
-        { range: [50, 60], color: "rgba(236, 72, 153, 0.25)" }
+            { range: [0, 11.2], color: "rgba(152, 251, 178, 1.0)" },      // Low
+            { range: [11.2, 21.3], color: "rgba(210, 227, 81, 1.0)" },    // Moderate
+            { range: [21.3, 38.0], color: "rgba(230, 169, 0, 1.0)" },     // High
+            { range: [38.0, 50.0], color: "rgba(214, 102, 16, 1.0)" },    // Very High
+            { range: [50.0, 70.0], color: "rgba(180, 7, 12, 1.0)" },      // Extreme
+            { range: [70.0, 80.0], color: "rgba(50, 2, 18, 1.0)" }        // Extreme+
       ]
     }
   }];
@@ -474,7 +487,8 @@ export function renderForecastSummaryModal(data, meta = {}) {
   const fwi = data.fwi || [0, 0, 0];
   const fopi = data.fopi || [0, 0, 0];
 
-  const rain = rawRain.map(v => (v < 1.0 && v > 0.0 ? parseFloat((v * 1000).toFixed(2)) : parseFloat(v.toFixed(2))));
+  //const rain = rawRain.map(v => (v < 1.0 && v > 0.0 ? parseFloat((v * 1000).toFixed(2)) : parseFloat(v.toFixed(2))));
+  const rain = rawRain.map(v => parseFloat((v ?? 0).toFixed(2)));
   const rh = rawRh.map(v => (v <= 1.0 && v > 0.0 ? parseFloat((v * 100).toFixed(1)) : parseFloat(v.toFixed(1))));
 
   const { alerts, advisories } = generateAdvisories(data);
