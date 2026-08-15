@@ -1,0 +1,25 @@
+# Environment variables
+.env
+.env.*
+
+# Python virtual environment
+venv/
+.venv/
+env/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE settings
+.vscode/
+.idea/
+data/
+# Spatial cache / local test data
+data/
+*.nc
+*.shp
+*.dbf
+*.shx
+*.geojson
