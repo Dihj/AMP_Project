@@ -451,3 +451,63 @@ themeObserver.observe(document.documentElement, {
   attributes: true,
   attributeFilter: ['class', 'data-theme']
 });
+
+
+/**
+ * Displays a loading overlay over the specified map.
+ */
+export function showMapLoading(map, message = "Calculating...", color = "#f43f5e") {
+  if (!map) return;
+  const container = map.getContainer();
+  
+  // If a loader is already present, just update the text and return
+  const existingLoader = container.querySelector('.map-loading-overlay');
+  if (existingLoader) {
+    existingLoader.querySelector('.loading-text').innerText = message;
+    return;
+  }
+
+  // Inject CSS for the spinner animation if it doesn't exist
+  if (!document.getElementById('spinner-keyframes')) {
+    const style = document.createElement('style');
+    style.id = 'spinner-keyframes';
+    style.innerHTML = '@keyframes leaflet-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
+    document.head.appendChild(style);
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'map-loading-overlay';
+  
+  // Apply inline styles for the blurred overlay
+  Object.assign(overlay.style, {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    backdropFilter: 'blur(4px)',
+    zIndex: 9999, // Sit above everything in Leaflet
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'opacity 0.2s ease-in-out'
+  });
+
+  overlay.innerHTML = `
+    <div style="width: 36px; height: 36px; border: 4px solid rgba(255,255,255,0.2); border-top: 4px solid ${color}; border-radius: 50%; animation: leaflet-spin 1s linear infinite; margin-bottom: 12px;"></div>
+    <div class="loading-text" style="color: #f8fafc; font-family: sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.5px;">${message}</div>
+  `;
+
+  container.appendChild(overlay);
+}
+
+/**
+ * Removes the loading overlay from the specified map.
+ */
+export function hideMapLoading(map) {
+  if (!map) return;
+  const container = map.getContainer();
+  const overlay = container.querySelector('.map-loading-overlay');
+  if (overlay) {
+    container.removeChild(overlay);
+  }
+}

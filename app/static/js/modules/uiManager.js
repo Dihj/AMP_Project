@@ -10,9 +10,7 @@ import {
 } from './climateLayers.js';
 import {
   updateLeftForecastLayer,
-  clearLeftForecastLayer,
-  updateRightForecastLayer,
-  clearRightForecastLayer
+  clearLeftForecastLayer
 } from './forecastLayers.js';
 import { updateRightFireIndexLayer, clearRightFireIndexLayer } from './fireIndexLayers.js';
 
@@ -72,7 +70,6 @@ export function renderUI() {
     clearLeftClimateLayer(mapLeft);
     clearRightClimateLayer(mapRight);
     clearLeftForecastLayer(mapLeft);
-    clearRightForecastLayer(mapRight);
     clearRightFireIndexLayer(mapRight);
     return;
   }
@@ -192,7 +189,6 @@ export function renderUI() {
   if (state.currentNav === 'MON') {
     // Clear forecast layers when in MON mode
     clearLeftForecastLayer(mapLeft);
-    clearRightForecastLayer(mapRight);
     clearRightFireIndexLayer(mapRight);
 
     const leftParam = (state.selectedIcon === 'Rain') ? 'Rain' : 'Temp';
@@ -272,4 +268,3 @@ export function makeElementDraggable(panelEl, handleEl) {
     document.onmousemove = null;
   }
 }
-

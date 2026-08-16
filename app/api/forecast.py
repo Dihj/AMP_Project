@@ -10,7 +10,8 @@ import xarray as xr
 import shapely.geometry as sg
 from shapely.geometry import Point, shape
 from flask import Blueprint, request, jsonify
-from app.api.fire_indices import compute_fire_indices
+from app.api.aifs_frcst import get_daily_weather_field, FORECAST_HORIZON_DAYS
+from app.api.fire_indices import get_fire_index_field
 
 forecast_bp = Blueprint('forecast', __name__)
 
@@ -23,6 +24,12 @@ FIRMS_CACHE = {
     "df": None
 }
 
+# How many forecast days the summary endpoint reports (day 0 = today).
+# Tied to aifs_frcst.FORECAST_HORIZON_DAYS so this can never drift out of
+# sync with how many days of data actually exist.
+NUM_DAYS = FORECAST_HORIZON_DAYS
+
+
 def get_latest_firms_data(ttl_seconds=900):
     """
     Downloads and caches NASA FIRMS 24h active fire CSV for Southern Africa.
@@ -34,7 +41,6 @@ def get_latest_firms_data(ttl_seconds=900):
 
     try:
         df = pd.read_csv(FIRMS_CSV_URL)
-        # Standardize column names to lowercase
         df.columns = [c.lower() for c in df.columns]
         FIRMS_CACHE["df"] = df
         FIRMS_CACHE["last_fetched"] = now
@@ -49,7 +55,7 @@ def haversine_distance_km(lat1, lon1, lat2, lon2):
     """
     Calculates the Great Circle distance between two points in km using the Haversine formula.
     """
-    R = 6371.0  # Earth radius in kilometers
+    R = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = (math.sin(dlat / 2) ** 2 +
@@ -66,16 +72,12 @@ def compute_fire_proximity_firms(geometry_dict=None, lat=None, lon=None, max_rad
     if df_fires.empty or ('latitude' not in df_fires.columns or 'longitude' not in df_fires.columns):
         return {"active_count": 0, "min_distance_km": None}
 
-    # Extract latitudes and longitudes from FIRMS dataframe
     fire_lats = df_fires['latitude'].values
     fire_lons = df_fires['longitude'].values
 
-    # 1. POLYGON / AREA SELECTION
     if geometry_dict:
         try:
             poly = shape(geometry_dict)
-            
-            # Count fires directly INSIDE or INTERSECTING polygon
             inside_count = 0
             min_km = float('inf')
 
@@ -84,17 +86,13 @@ def compute_fire_proximity_firms(geometry_dict=None, lat=None, lon=None, max_rad
                 if poly.contains(pt) or poly.intersects(pt):
                     inside_count += 1
                 else:
-                    # Approximation for poly distance: center of poly to fire
                     centroid = poly.centroid
                     d_km = haversine_distance_km(centroid.y, centroid.x, flat, flon)
                     if d_km < min_km:
                         min_km = d_km
 
             if inside_count > 0:
-                return {
-                    "active_count": inside_count,
-                    "min_distance_km": 0.0
-                }
+                return {"active_count": inside_count, "min_distance_km": 0.0}
 
             if min_km != float('inf') and min_km <= max_radius_km:
                 return {"active_count": 0, "min_distance_km": round(min_km, 2)}
@@ -105,7 +103,6 @@ def compute_fire_proximity_firms(geometry_dict=None, lat=None, lon=None, max_rad
             print(f"[FIRMS] Error evaluating polygon fire intersection: {e}")
             return {"active_count": 0, "min_distance_km": None}
 
-    # 2. CLICKED POINT SELECTION
     elif lat is not None and lon is not None:
         distances = [haversine_distance_km(lat, lon, flat, flon) for flat, flon in zip(fire_lats, fire_lons)]
         if not distances:
@@ -134,12 +131,13 @@ def compute_ndvi_trend_from_files(lat=None, lon=None, geometry_dict=None, ndvi_d
         return 0.0
 
     try:
-        ds_latest = rioxarray.open_rasterio(latest_path, masked=True)
-        ds_prev = rioxarray.open_rasterio(previous_path, masked=True)
+        ds_latest = xr.open_dataset(latest_path)["NDVI"]
+        ds_prev = xr.open_dataset(previous_path)["NDVI"]
 
-        # Set EPSG CRS if missing
-        if not ds_latest.rio.crs: ds_latest = ds_latest.rio.write_crs("EPSG:4326")
-        if not ds_prev.rio.crs: ds_prev = ds_prev.rio.write_crs("EPSG:4326")
+        for da in (ds_latest, ds_prev):
+            if da.rio.crs is None:
+                da.rio.write_crs("EPSG:4326", inplace=True)
+            da.rio.set_spatial_dims(x_dim="longitude", y_dim="latitude", inplace=True)
 
         def extract_single_val(da):
             lat_key = next((k for k in ['latitude', 'lat', 'y'] if k in da.dims or k in da.coords), None)
@@ -148,12 +146,14 @@ def compute_ndvi_trend_from_files(lat=None, lon=None, geometry_dict=None, ndvi_d
             if geometry_dict:
                 clipped = da.rio.clip([geometry_dict], crs="EPSG:4326", drop=True)
                 spatial_dims = [d for d in [lat_key, lon_key] if d in clipped.dims]
-                mean_val = clipped.mean(dim=spatial_dims, skipna=True).values if spatial_dims else clipped.mean(skipna=True).values
-                return float(np.nan_to_num(mean_val, nan=0.0))
+                reduced = clipped.mean(dim=spatial_dims, skipna=True) if spatial_dims else clipped.mean(skipna=True)
             elif lat is not None and lon is not None:
-                val = da.sel({lat_key: lat, lon_key: lon}, method='nearest').values
-                return float(np.nan_to_num(val, nan=0.0))
-            return 0.0
+                reduced = da.sel({lat_key: lat, lon_key: lon}, method='nearest')
+            else:
+                return 0.0
+
+            val = np.atleast_1d(np.nan_to_num(reduced.values, nan=0.0)).flatten()
+            return float(val[0]) if val.size > 0 else 0.0
 
         latest_val = extract_single_val(ds_latest)
         prev_val = extract_single_val(ds_prev)
@@ -169,49 +169,72 @@ def compute_ndvi_trend_from_files(lat=None, lon=None, geometry_dict=None, ndvi_d
         return 0.0
 
 
-def extract_time_series(da, lat=None, lon=None, geometry_dict=None, num_days=3):
+def _extract_from_field(field, lat=None, lon=None, geometry_dict=None):
     """
-    Extracts Day 0, Day 1, Day 2 values for a point or polygon area-average
-    from a cached xarray DataArray or Dataset.
+    Extract a single scalar value from a field returned by
+    get_daily_weather_field() or get_fire_index_field().
     """
-    if da is None:
-        return [0.0] * num_days
-
-    lat_key = next((k for k in ['latitude', 'lat', 'y'] if k in da.dims or k in da.coords), None)
-    lon_key = next((k for k in ['longitude', 'lon', 'x'] if k in da.dims or k in da.coords), None)
+    lat_key = next((k for k in ['latitude', 'lat', 'y'] if k in field.dims or k in field.coords), None)
+    lon_key = next((k for k in ['longitude', 'lon', 'x'] if k in field.dims or k in field.coords), None)
+    
+    if lat_key is None or lon_key is None:
+        return 0.0
 
     try:
+        field_clean = field.copy()
+
+        if hasattr(field_clean, "rio") and field_clean.rio.nodata is not None:
+            field_clean = field_clean.where(field_clean != field_clean.rio.nodata)
+
+        field_clean = field_clean.where((field_clean >= 0) & (field_clean < 2000.0))
+
         if geometry_dict:
-            if not da.rio.crs:
-                da = da.rio.write_crs("EPSG:4326")
-
-            clipped = da.rio.clip([geometry_dict], crs="EPSG:4326", drop=True)
-            spatial_dims = [d for d in [lat_key, lon_key] if d in clipped.dims]
-            means = clipped.mean(dim=spatial_dims, skipna=True).values if spatial_dims else clipped.mean(skipna=True).values
+            if field_clean.rio.crs is None:
+                field_clean = field_clean.rio.write_crs("EPSG:4326")
             
-            vals = np.atleast_1d(np.nan_to_num(means, nan=0.0)).flatten()
-            return [round(float(v), 4) for v in vals[:num_days]]
-
+            clipped = field_clean.rio.clip([geometry_dict], crs="EPSG:4326", drop=True)
+            
+            spatial_dims = [d for d in [lat_key, lon_key] if d in clipped.dims]
+            if spatial_dims:
+                reduced = clipped.mean(dim=spatial_dims, skipna=True)
+            else:
+                reduced = clipped.mean(skipna=True)
+                
+            val = reduced.values
         elif lat is not None and lon is not None:
-            point_vals = da.sel({lat_key: lat, lon_key: lon}, method='nearest').values
-            vals = np.atleast_1d(np.nan_to_num(point_vals, nan=0.0)).flatten()
-            return [round(float(v), 4) for v in vals[:num_days]]
+            selected = field_clean.sel({lat_key: lat, lon_key: lon}, method="nearest")
+            val = selected.values
+        else:
+            return 0.0
+
+        val_flat = np.atleast_1d(val).flatten()
+        if val_flat.size == 0 or np.isnan(val_flat[0]):
+            return 0.0
+            
+        res = float(val_flat[0])
+        return res if np.isfinite(res) else 0.0
 
     except Exception as e:
-        print(f"Extraction error: {e}")
-        return [0.0] * num_days
-
-    return [0.0] * num_days
+        print(f"[Forecast Summary] extraction error: {e}")
+        return 0.0
 
 
-def get_da_by_keys(ds, possible_keys):
-    """Helper to retrieve the first matching variable key from an xarray Dataset."""
-    if ds is None:
-        return None
-    for k in possible_keys:
-        if k in ds.data_vars or k in ds:
-            return ds[k]
-    return None
+def extract_series(field_fn, num_days=NUM_DAYS, lat=None, lon=None, geometry_dict=None):
+    """
+    Loops day 0..num_days-1, fetches the canonical field for each day via
+    field_fn(day) (pass get_daily_weather_field or get_fire_index_field),
+    and extracts the point/polygon value from it.
+    """
+    out = []
+    for day in range(num_days):
+        try:
+            field = field_fn(day)
+            val = _extract_from_field(field, lat, lon, geometry_dict)
+        except Exception as e:
+            print(f"[Forecast Summary] extraction error (day {day}): {e}")
+            val = 0.0
+        out.append(round(val, 4))
+    return out
 
 
 @forecast_bp.route('/api/forecast/summary', methods=['POST'])
@@ -225,50 +248,67 @@ def get_forecast_summary():
     if lat is not None: lat = float(lat)
     if lon is not None: lon = float(lon)
 
-    # 1. Retrieve cached datasets from memory
-    fwi_da, fopi_da, aifs_ds, _ = compute_fire_indices()
+    temperature = extract_series(
+        lambda d: get_daily_weather_field("temp_2m_celsius", d), lat=lat, lon=lon, geometry_dict=geometry_dict,
+    )
+    rainfall = extract_series(
+        lambda d: get_daily_weather_field("precipitation_surface_mm", d), lat=lat, lon=lon, geometry_dict=geometry_dict,
+    )
+    rh = extract_series(
+        lambda d: get_daily_weather_field("relative_humidity_2m", d), lat=lat, lon=lon, geometry_dict=geometry_dict,
+    )
+    wind = extract_series(
+        lambda d: get_daily_weather_field("wind_speed_10m", d), lat=lat, lon=lon, geometry_dict=geometry_dict,
+    )
+    fwi_series = extract_series(
+        lambda d: get_fire_index_field("fwi", d), lat=lat, lon=lon, geometry_dict=geometry_dict,
+    )
+    fopi_series = extract_series(
+        lambda d: get_fire_index_field("fopi", d), lat=lat, lon=lon, geometry_dict=geometry_dict,
+    )
 
-    # 2. Extract DataArrays matching variable names
-    tas_da = get_da_by_keys(aifs_ds, ['temp_c', 'temperature_2m', '2t', 'tas'])
-    pr_da = get_da_by_keys(aifs_ds, ['precipitation_surface', 'tp', 'pr', 'rr'])
-    rh_da = get_da_by_keys(aifs_ds, ['relative_humidity', 'hurs', 'r', '2r', 'rh'])
-    wind_da = get_da_by_keys(aifs_ds, ['wind_speed_10m', 'sfcWind', '10si', 'ws'])
+    rainfall = [round(v, 2) for v in rainfall]
+    rh = [round(v, 1) for v in rh]
+    temperature = [round(v, 1) for v in temperature]
+    wind = [round(v, 1) for v in wind]
+    fwi_formatted = [round(v, 1) for v in fwi_series]
+    fopi_formatted = [round(v, 2) for v in fopi_series]
 
-    # 3. Extract Time Series
-    temperature = extract_time_series(tas_da, lat, lon, geometry_dict)
-    raw_rainfall = extract_time_series(pr_da, lat, lon, geometry_dict)
-    raw_rh = extract_time_series(rh_da, lat, lon, geometry_dict)
-    wind = extract_time_series(wind_da, lat, lon, geometry_dict)
-
-    # Unit Adjustments:
-    if max(raw_rainfall) < 1.0:
-        rainfall = [round(r * 1000.0, 2) for r in raw_rainfall]
-    else:
-        rainfall = [round(r, 2) for r in raw_rainfall]
-
-    if max(raw_rh) <= 1.0 and max(raw_rh) > 0.0:
-        rh = [round(r * 100.0, 1) for r in raw_rh]
-    else:
-        rh = [round(r, 1) for r in raw_rh]
-
-    # 4. Extract FWI & FOPI
-    fwi_series = extract_time_series(fwi_da, lat, lon, geometry_dict)
-    fopi_series = extract_time_series(fopi_da, lat, lon, geometry_dict)
-
-    # 5. Compute NASA FIRMS active fire proximity & NDVI Delta from files
     fire_info = compute_fire_proximity_firms(geometry_dict, lat, lon)
     ndvi_trend = compute_ndvi_trend_from_files(lat, lon, geometry_dict)
+
+    # Build the raw data list mapping time/day step, parameters, and extracted values
+    raw_data = []
+    param_map = [
+        ("Temperature (°C)", temperature),
+        ("Precipitation (mm)", rainfall),
+        ("Relative Humidity (%)", rh),
+        ("Wind Speed (m/s)", wind),
+        ("FWI", fwi_formatted),
+        ("FOPI", fopi_formatted)
+    ]
+
+    for day_idx in range(NUM_DAYS):
+        day_label = "Today" if day_idx == 0 else f"Day +{day_idx}"
+        for param_name, series_data in param_map:
+            raw_data.append({
+                "time": day_label,
+                "parameter": param_name,
+                "value": series_data[day_idx]
+            })
 
     return jsonify({
         "status": "success",
         "name": location_name or (f"Point ({lat}, {lon})" if lat else "Selected Region"),
         "temperature": temperature,
-        "rainfall": rainfall,    # in mm
-        "rh": rh,                # in %
-        "wind": wind,            # in m/s
-        "fwi": [round(v, 1) for v in fwi_series],
-        "fopi": [round(v, 2) for v in fopi_series],
+        "rainfall": rainfall,
+        "rh": rh,
+        "wind": wind,
+        "fwi": fwi_formatted,
+        "fopi": fopi_formatted,
         "fire_info": fire_info,
-        "ndvi_trend": ndvi_trend
+        "ndvi_trend": ndvi_trend,
+        "raw_data": raw_data
     })
+
 
