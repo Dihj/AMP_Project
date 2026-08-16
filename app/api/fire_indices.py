@@ -190,10 +190,12 @@ def calculate_fopi_improved(
     return fopi
 '''
 def calculate_fopi_improved(
-    fwi, ndvi_ds, active_fire_mask, k=0.15, fwi_50=15.0
+    fwi, ndvi_ds, active_fire_mask, k=0.12, fwi_50=18.0
 ):
     """Calculates smoothed, calibrated FOPI index."""
     ndvi_key = "NDVI" if "NDVI" in ndvi_ds else list(ndvi_ds.data_vars)[0]
+    logger.info(f"Using NDVI varibale: {ndvi_key} with shape {ndvi_ds[ndvi_key].shape}")
+
     ndvi_da = ndvi_ds[ndvi_key]
     if "lat" in ndvi_da.dims:
         ndvi_da = ndvi_da.rename({"lat": "latitude", "lon": "longitude"})
@@ -201,10 +203,18 @@ def calculate_fopi_improved(
     ndvi_interp = ndvi_da.interp(
         latitude=fwi.latitude, longitude=fwi.longitude, method="linear"
     ).fillna(0.2)
-    ndvi_clean = np.clip(ndvi_interp, 0.0, 1.0)
+    nan_count = int(ndvi_interp.isnull().sum())
+    total_count = ndvi_interp.size
+    logger.info(f'NDVI grid NaN : {nan_count}/{total_count} pixel filled with default 0.2')
+
+    ndvi_clean = np.clip(ndvi_interp.fillna(0.2), 0.0, 1.0)
 
     # Curing factor: Higher when vegetation is dry (low NDVI)
     curing_factor = np.clip((0.85 - ndvi_clean) / 0.65, 0.0, 1.0)
+    logger.info(
+        f'Curing factor range : min={float(curing_factor.min()):.3f},' 
+        f'max={float(curing_factor.max()):.3f}, mean={float(curing_factor.mean()):.3f}'
+    )
     
     # Scale hazard so moderate FWI with high curing maps effectively
     hazard_score = fwi * (0.4 + 0.8 * curing_factor)
@@ -343,6 +353,7 @@ def get_fire_index_plot():
         # lats/lons are pixel CENTERS, but Leaflet's ImageOverlay bounds are
         # pixel EDGES. Using center min/max directly shifts the whole raster
         # by half a pixel relative to true geographic points (e.g. FIRMS
+
         # active-fire markers plotted from raw lat/lon).
         lat_res = float(np.abs(np.mean(np.diff(lats)))) if len(lats) > 1 else 0.0
         lon_res = float(np.abs(np.mean(np.diff(lons)))) if len(lons) > 1 else 0.0
@@ -368,7 +379,7 @@ def get_fire_index_plot():
                 "#320212",  # Extreme+
             ]
             labels = ["Low", "Moderate", "High", "Very High", "Extreme", "Extreme+"]
-            title = "Fire Weather Index (FWI)"
+            title = "FWI"
             unit = "FWI"
             cmap = mcolors.ListedColormap(colors)
             norm = mcolors.BoundaryNorm(levels, cmap.N)
@@ -382,7 +393,7 @@ def get_fire_index_plot():
                 "Very High (0.6-0.8)",
                 "Extreme (>0.8)",
             ]
-            title = "Fire Occurrence Probability Index (FOPI)"
+            title = "FOPI"
             unit = "Probability"
             cmap = mcolors.ListedColormap(colors)
             norm = mcolors.BoundaryNorm(levels, cmap.N)

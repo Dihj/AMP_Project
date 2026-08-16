@@ -74,11 +74,7 @@ def clear_zarr_encodings(dataset):
 
 
 def get_cached_land_mask(lats, lons, layer_key="districtMdg"):
-    """
-    Builds (and caches) the boolean "is ocean / outside Madagascar" mask on
-    the given lat/lon grid, from the districtMdg shapefile. True = outside
-    the land boundary (should become NaN).
-    """
+
     global GEOMETRY_MASK_CACHE
 
     if GEOMETRY_MASK_CACHE is not None:
@@ -114,24 +110,7 @@ def get_cached_land_mask(lats, lons, layer_key="districtMdg"):
 
 def regrid_and_mask_to_land(ds, layer_key="districtMdg", target_resolution=TARGET_GRID_RESOLUTION_DEG,
                              bbox=MADAGASCAR_BBOX):
-    """
-    THE single regrid+mask step for the whole app: bilinearly interpolates
-    every variable in `ds` onto a fixed ~0.05deg (5km) grid over Madagascar,
-    then sets every cell outside the districtMdg shapefile boundary to NaN.
-    Masking on the fine grid (rather than AIFS's coarser native grid) gives
-    a much cleaner coastline than rasterizing the shapefile onto a coarse
-    grid would.
 
-    Called ONCE per download, on the full per-lead_time-step dataset,
-    before saving to disk - so the map, daily aggregation, FWI/FOPI, and
-    point/polygon extraction all read the exact same already-regridded,
-    already-masked data.
-
-    NOTE: bilinear interpolation, not an area-conservative/flux-conserving
-    remap. For precipitation specifically, a conservative regrid (e.g. via
-    xesmf) would be more rigorous if exact area-integrated totals matter -
-    flagging this as a known simplification, not treating it as exact.
-    """
     target_lats = np.arange(bbox["lat_north"], bbox["lat_south"] - target_resolution, -target_resolution)
     target_lons = np.arange(bbox["lon_west"], bbox["lon_east"] + target_resolution, target_resolution)
 
@@ -161,19 +140,7 @@ PRECIP_SPIKE_FLOOR_KG_M2_S = 5.0 / 3600.0  # ~5 mm/hr, in kg m-2 s-1
 
 
 def despike_precip_rate(precip_da, neighborhood=3):
-    """
-    AI-based weather models (AIFS included) occasionally emit an isolated,
-    non-physical extreme value at a single grid cell/timestep for
-    precipitation - especially at longer lead times - with no spatial
-    coherence: unlike a genuine convective cell (which elevates a cluster of
-    adjacent grid points together), the artifact's neighbors stay normal.
 
-    Replaces any such isolated spike with its local neighborhood median. Run
-    on the NATIVE-resolution rate (before regridding), which is the most
-    precise place to catch it. Genuine widespread heavy rain is left
-    untouched, because its neighbors are elevated too and the ratio check
-    never triggers.
-    """
     def _despike_2d(arr2d):
         local_median = median_filter(arr2d, size=neighborhood, mode="nearest")
         threshold = np.maximum(local_median * PRECIP_SPIKE_RATIO, PRECIP_SPIKE_FLOOR_KG_M2_S)
@@ -199,12 +166,7 @@ def despike_precip_rate(precip_da, neighborhood=3):
 
 
 def calculate_relative_humidity(t2m_c, d2m_c):
-    """Calculates Relative Humidity (%) using the August-Roche-Magnus formula.
 
-    Inputs must be degrees Celsius. Per the AIFS data catalog, both
-    temperature_2m and dew_point_temperature_2m are already reported in
-    degree_Celsius, so no unit conversion is needed before calling this.
-    """
     e = 6.112 * np.exp((17.67 * d2m_c) / (d2m_c + 243.5))
     es = 6.112 * np.exp((17.67 * t2m_c) / (t2m_c + 243.5))
     rh = (e / es) * 100.0
@@ -212,14 +174,7 @@ def calculate_relative_humidity(t2m_c, d2m_c):
 
 
 def download_and_save_aifs():
-    """
-    Fetch a MAX_LEAD_HOURS forecast from S3 Icechunk (rectangular bbox
-    pre-filter), compute derived per-step parameters at NATIVE resolution
-    (unit fixes, despiking), then regrid + shapefile-mask the WHOLE dataset
-    to the final ~0.05deg (5km) grid and save THAT to disk. Immediately
-    pre-warms the daily dataset and FWI/FOPI caches too, so the FIRST user
-    request after a refresh doesn't pay that computation cost.
-    """
+
     t_start = time.time()
     logger.info("Connecting to s3://dynamical-ecmwf-aifs-single via Icechunk...")
 
@@ -245,7 +200,11 @@ def download_and_save_aifs():
     ds_sub = ds[available_vars]
 
     latest_init = ds_sub.init_time.values[-1]
-    max_lead = np.timedelta64(MAX_LEAD_HOURS, "h")
+    init_hour = pd.Timestamp(latest_init).hour
+    effective_max_lead = MAX_LEAD_HOURS + 24 if init_hour >=12 else MAX_LEAD_HOURS 
+    max_lead = np.timedelta64(effective_max_lead, "h")
+
+    #max_lead = np.timedelta64(MAX_LEAD_HOURS, "h")
 
     logger.info(
         f"Downloading {MAX_LEAD_HOURS}h AIFS forecast for run {latest_init} over Madagascar (bbox pre-filter)..."
@@ -380,39 +339,25 @@ def get_aifs_dataset():
     return ds
 
 
-# ---------------------------------------------------------------------------
-# Local-calendar-day bucketing + daily aggregation.
-#
-# This is the SINGLE place native-cadence (sub-daily) AIFS steps get turned
-# into "day 0 / day 1 / day 2 / day 3" data. app.api.fire_indices reuses
-# these exact same functions/dataset to build FWI/FOPI's daily inputs, so
-# there is only one definition of what a "day" is and how each variable is
-# aggregated into it across the whole app.
-#
-# Temperature -> daily MAX, relative humidity -> daily MIN: this is the
-# standard CFFWI daily-proxy convention (minimum RH typically coincides
-# with maximum temperature near solar noon, so these two together
-# approximate "noon LST" conditions when noon-specific sub-daily selection
-# isn't used). Wind -> daily MEAN (no equivalent max/min convention for
-# wind in the standard method). Precipitation -> daily TOTAL/accumulation.
-# ---------------------------------------------------------------------------
-
 def build_local_day_groups(lead_time_da, init_time_val, max_days=FORECAST_HORIZON_DAYS):
-    """
-    Groups native-cadence forecast steps (lead_time) into LOCAL (UTC+3)
-    calendar days: day 0 = today, day 1 = tomorrow, etc.
 
-    Returns:
-        day_dates:    list of np.datetime64 (local midnight), day0 ... dayN-1
-        day_step_idx: list of integer index arrays into lead_time, one per day
-        local_time:   pandas.DatetimeIndex of each step's local valid time
-    """
     init_ts = pd.Timestamp(init_time_val)
     valid_time_utc = init_ts + pd.to_timedelta(lead_time_da.values)
     local_time = pd.DatetimeIndex(valid_time_utc) + pd.Timedelta(hours=LOCAL_UTC_OFFSET_HOURS)
     local_date = local_time.normalize()
 
-    unique_dates = local_date.unique().sort_values()[:max_days]
+    init_hour = init_ts.hour
+    #unique_dates = local_date.unique().sort_values()[:max_days]
+    unique_dates = local_date.unique().sort_values()
+    if init_hour >= 12 and len(unique_dates) > 1:
+        logger.info(
+            f"[AIFS Time Logic] Run initialized at {init_hour:02d}:00 UTC. "
+            "Omitting partial first day and shifting window to maintain full forecast length."
+        )
+        unique_dates = unique_dates[1:]
+
+        # Restrict strictly to the target number of days (FORECAST_HORIZON_DAYS)
+    unique_dates = unique_dates[:max_days]
 
     day_dates, day_step_idx = [], []
     for d in unique_dates:
@@ -432,16 +377,13 @@ def _drop_singleton_init_time(da):
 
 
 def _reduce_daily_max(da, day_step_idx, dim="lead_time"):
-    """Daily MAX across all native-cadence steps within each local day -
-    used for temperature (standard proxy for noon-LST temperature)."""
+
     vals = [da.isel({dim: idx}).max(dim=dim, skipna=True) for idx in day_step_idx]
     return xr.concat(vals, dim="time")
 
 
 def _reduce_daily_min(da, day_step_idx, dim="lead_time"):
-    """Daily MIN across all native-cadence steps within each local day -
-    used for relative humidity (standard proxy for noon-LST RH, since
-    minimum daily RH typically coincides with maximum daily temperature)."""
+
     vals = [da.isel({dim: idx}).min(dim=dim, skipna=True) for idx in day_step_idx]
     return xr.concat(vals, dim="time")
 
@@ -452,19 +394,11 @@ def _reduce_daily_mean(da, day_step_idx, dim="lead_time"):
     vals = [da.isel({dim: idx}).mean(dim=dim, skipna=True) for idx in day_step_idx]
     return xr.concat(vals, dim="time")
 
-
-# Absolute ceiling for a single day's total rainfall at one grid cell.
-# Extremely generous on purpose (near world-record daily-rainfall
-# territory) - this is a last-resort safety net, not a primary correction
-# mechanism.
 DAILY_PRECIP_SANITY_CAP_MM = 500.0
 
 
 def _reduce_daily_precip_total(cumulative_mm_da, day_step_idx, dim="lead_time"):
-    """Daily TOTAL precip (mm) from a monotonically cumulative field: each
-    day's total = cumulative value at day-end minus cumulative value at the
-    previous day's end (0 for day 0, i.e. accumulation is measured from
-    forecast init_time)."""
+
     totals = []
     prev_end = None
     for idx in day_step_idx:
@@ -489,20 +423,7 @@ def _reduce_daily_precip_total(cumulative_mm_da, day_step_idx, dim="lead_time"):
 
 
 def get_daily_aifs_dataset():
-    """
-    Builds (and caches, keyed to the current forecast's init_time) the
-    canonical DAILY forecast dataset: one value per LOCAL calendar day
-    (day 0 = today ... day N-1) for:
-      - temp_2m_celsius:        daily MAX (degC)
-      - wind_speed_10m:         daily MEAN (m/s)
-      - relative_humidity_2m:   daily MIN (%)
-      - precipitation_surface_mm: daily TOTAL / accumulation (mm)
 
-    on the already regridded (~0.05deg / 5km) and shapefile-masked grid from
-    get_aifs_dataset(). This is the single source of truth: the map,
-    point/polygon extraction, and FWI/FOPI all read this same dataset - no
-    further interpolation or masking happens anywhere else.
-    """
     ds = get_aifs_dataset()
 
     if "init_time" in ds.coords:
@@ -526,12 +447,6 @@ def get_daily_aifs_dataset():
     rh = _drop_singleton_init_time(ds["relative_humidity_2m"])
     pr_cumulative = _drop_singleton_init_time(ds["precipitation_surface_mm"])
 
-    # NOTE: arrays coming from the cached-zarr load path are dask-backed.
-    # Concatenating several small per-day reductions leaves "time" split
-    # across multiple chunks, which breaks any downstream apply_ufunc that
-    # needs "time" as a single core-dimension chunk (e.g. xclim's recursive
-    # daily FWI calculation). Materializing eagerly with .load() is cheap
-    # here since these are daily-reduced arrays.
     daily_tas = _reduce_daily_max(tas, day_step_idx).load()
     daily_wind = _reduce_daily_mean(wind, day_step_idx).load()
     daily_rh = _reduce_daily_min(rh, day_step_idx).load()
@@ -566,13 +481,7 @@ def get_daily_aifs_dataset():
 
 
 def get_daily_weather_field(var_name, day_num):
-    """
-    Returns the field for `var_name` / `day_num` from the canonical daily
-    dataset (get_daily_aifs_dataset()) - already at ~0.05deg (5km) and
-    shapefile-masked, since that happened once at download time. Used
-    identically by the map (/plot) and by point/polygon extraction (see
-    app.api.forecast).
-    """
+
     cache_key = f"{var_name}_day{day_num}"
     if cache_key in FIELD_CACHE:
         return FIELD_CACHE[cache_key]

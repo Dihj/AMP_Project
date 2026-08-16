@@ -1,13 +1,11 @@
 // static/js/modules/forecastLayers.js
+//import { getMapLeft, getMapRight } from './mapManager.js';
+import { getMapLeft, getMapRight, showMapLoading, hideMapLoading } from './mapManager.js';
 
 let leftForecastOverlay = null;
 let leftForecastLegendControl = null;
 
-let rightForecastOverlay = null;
-let rightForecastLegendControl = null;
-
 let leftForecastFetchController = null;
-let rightForecastFetchController = null;
 
 export function clearLeftForecastLayer(mapLeft) {
   if (leftForecastFetchController) {
@@ -22,11 +20,6 @@ export function clearLeftForecastLayer(mapLeft) {
     leftForecastOverlay = null;
   }
 
-  mapLeft.eachLayer((layer) => {
-    if (layer instanceof L.ImageOverlay) {
-      mapLeft.removeLayer(layer);
-    }
-  });
 
   if (leftForecastLegendControl) {
     try { mapLeft.removeControl(leftForecastLegendControl); } catch (e) {}
@@ -34,33 +27,29 @@ export function clearLeftForecastLayer(mapLeft) {
   }
 }
 
+
 export function clearRightForecastLayer(mapRight) {
-  if (rightForecastFetchController) {
-    rightForecastFetchController.abort();
-    rightForecastFetchController = null;
-  }
-
-  if (!mapRight) return;
-
-  if (rightForecastOverlay) {
-    try { mapRight.removeLayer(rightForecastOverlay); } catch (e) {}
-    rightForecastOverlay = null;
-  }
-
-  mapRight.eachLayer((layer) => {
-    if (layer instanceof L.ImageOverlay) {
-      mapRight.removeLayer(layer);
-    }
-  });
-
-  if (rightForecastLegendControl) {
-    try { mapRight.removeControl(rightForecastLegendControl); } catch (e) {}
-    rightForecastLegendControl = null;
-  }
+  console.warn(
+    '[ForecastLayer] clearRightForecastLayer() called, but the right map ' +
+    'never hosts a weather overlay by design - this is a no-op. If you ' +
+    'expected this to do something, the caller should be using ' +
+    'fireIndexLayers.js instead.'
+  );
 }
 
 export function updateLeftForecastLayer(mapLeft, parameter = 'temp', day = 0) {
   if (!mapLeft) return;
+
+  if (mapLeft !== getMapLeft()) {
+    console.error(
+      '[ForecastLayer] BLOCKED: updateLeftForecastLayer() was called with a ' +
+      'map instance that is not the registered LEFT map. Weather/NDVI must ' +
+      'only render on the left map - refusing to render.'
+    );
+    return;
+  }
+
+  console.log('[ForecastLayer:LEFT] called with parameter=', parameter, 'day=', day);
 
   if (leftForecastFetchController) {
     leftForecastFetchController.abort();
@@ -84,6 +73,10 @@ export function updateLeftForecastLayer(mapLeft, parameter = 'temp', day = 0) {
     const param = paramMap[parameter] || parameter;
     url = `/api/forecast/plot?variable=${param}&day=${day}`;
   }
+  console.log('[ForecastLayer:LEFT] fetching URL:', url);
+
+  showMapLoading(mapLeft, 'Loading...', '#38bdf8');
+
 
   fetch(url, { signal: leftForecastFetchController.signal })
     .then(res => {
@@ -91,10 +84,21 @@ export function updateLeftForecastLayer(mapLeft, parameter = 'temp', day = 0) {
       return res.json();
     })
     .then(data => {
-      if (!data.imageUrl || !data.bounds) return;
+      hideMapLoading(mapLeft);
+      if (data.status && data.status !== 'success') {
+        console.error(`[Forecast Layer] Backend error for ${url}:`, data.error || data);
+        return;
+      }
+      if (!data.imageUrl || !data.bounds) {
+        console.warn(`[Forecast Layer] Response missing imageUrl/bounds for ${url}:`, data);
+        return;
+      }
+      console.log('[ForecastLayer:LEFT] SUCCESS for', url, '- bounds=', data.bounds, 'imageUrl length=', data.imageUrl.length, 'legend=', data.legend);
 
       import('./uiManager.js').then(uiModule => {
+        console.log('[ForecastLayer:LEFT] currentNav=', uiModule.state.currentNav);
         if (uiModule.state.currentNav !== 'FOR') {
+          console.log('[ForecastLayer:LEFT] SKIPPING render - currentNav is not FOR');
           clearLeftForecastLayer(mapLeft);
           return;
         }
@@ -114,6 +118,7 @@ export function updateLeftForecastLayer(mapLeft, parameter = 'temp', day = 0) {
           pane: 'leftClimatePane'
         });
         leftForecastOverlay.addTo(mapLeft);
+        console.log('[ForecastLayer:LEFT] overlay added to map for', url);
 
         if (data.legend && Array.isArray(data.legend) && data.legend.length > 0) {
           leftForecastLegendControl = createForecastLegendControl(data, 'bottomleft');
@@ -128,73 +133,15 @@ export function updateLeftForecastLayer(mapLeft, parameter = 'temp', day = 0) {
     });
 }
 
+
 export function updateRightForecastLayer(mapRight, parameter = 'temp', day = 0) {
-  if (!mapRight) return;
-
-  if (rightForecastFetchController) {
-    rightForecastFetchController.abort();
-  }
-  rightForecastFetchController = new AbortController();
-
-  let url = '';
-  if (parameter === 'NDVI' || parameter === 'ndvi') {
-    url = `/api/ndvi/plot`;
-  } else {
-    const paramMap = {
-      'Temp': 'temp_c',
-      'temp': 'temp_c',
-      'Rain': 'precipitation_surface',
-      'rr': 'precipitation_surface',
-      'RH': 'relative_humidity',
-      'rh': 'relative_humidity',
-      'Wind': 'wind_speed_10m',
-      'wind': 'wind_speed_10m'
-    };
-    const param = paramMap[parameter] || parameter;
-    url = `/api/forecast/plot?variable=${param}&day=${day}`;
-  }
-
-  fetch(url, { signal: rightForecastFetchController.signal })
-    .then(res => {
-      if (!res.ok) throw new Error(`Server status ${res.status}`);
-      return res.json();
-    })
-    .then(data => {
-      if (!data.imageUrl || !data.bounds) return;
-
-      import('./uiManager.js').then(uiModule => {
-        if (uiModule.state.currentNav !== 'FOR') {
-          clearRightForecastLayer(mapRight);
-          return;
-        }
-
-        clearRightForecastLayer(mapRight);
-
-        // Ensure right raster pane exists below active fire markers
-        if (!mapRight.getPane('rightClimatePane')) {
-          mapRight.createPane('rightClimatePane');
-          mapRight.getPane('rightClimatePane').style.zIndex = 350;
-        }
-
-        // Render overlay in background pane (z-index: 350)
-        rightForecastOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
-          opacity: 0.8,
-          interactive: false,
-          pane: 'rightClimatePane'
-        });
-        rightForecastOverlay.addTo(mapRight);
-
-        if (data.legend && Array.isArray(data.legend) && data.legend.length > 0) {
-          rightForecastLegendControl = createForecastLegendControl(data, 'bottomright');
-          rightForecastLegendControl.addTo(mapRight);
-        }
-      });
-    })
-    .catch(err => {
-      if (err.name !== 'AbortError') {
-        console.error("Right map forecast update error:", err);
-      }
-    });
+  console.error(
+    `[ForecastLayer] BLOCKED: updateRightForecastLayer(parameter=${parameter}, day=${day}) ` +
+    'was called, but the right map is reserved exclusively for fire indices ' +
+    '(FWI/FOPI). Weather/NDVI parameters belong on the LEFT map only - use ' +
+    'updateLeftForecastLayer() there, and updateRightFireIndexLayer() from ' +
+    'fireIndexLayers.js for the right map. Find and fix this call site.'
+  );
 }
 
 function createForecastLegendControl(data, position) {
