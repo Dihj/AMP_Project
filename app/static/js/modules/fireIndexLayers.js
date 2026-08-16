@@ -156,7 +156,7 @@ function createFireIndexLegendControl(data, position = 'bottomright') {
   legendControl.onAdd = function () {
     const div = L.DomUtil.create('div', 'fire-index-legend-box');
 
-    const displayTitle = data.title || 'Fire Risk Index';
+    const displayTitle = data.title || 'Indices des risques du feux';
     const displayUnit = data.unit ? ` (${data.unit})` : '';
 
     const rowsHtml = data.legend.map((item) => `

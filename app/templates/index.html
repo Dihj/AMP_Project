@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Meteorological Fire - Forecast Dashboard</title>
+  <title> Feux Meteo </title>
   
   <!-- FontAwesome Icons & Leaflet CSS -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -27,14 +27,14 @@
 
     <!-- Navigation Bar -->
     <nav class="header-nav">
-      <button class="nav-btn active" data-nav="MON">Historical</button>
-      <button class="nav-btn" data-nav="FOR">Forecast</button>
-      <button class="nav-btn" data-nav="About">About</button>
+      <button class="nav-btn active" data-nav="MON"> Historique </button>
+      <button class="nav-btn" data-nav="FOR"> Prevision </button>
+      <button class="nav-btn" data-nav="About">A propos</button>
     </nav>
 
 
     <div class="header-right">
-      <span class="badge-lang">UTC+3</span>
+      <span class="badge-lang">GMT+3</span>
       <!-- Theme Toggle Button -->
       <button id="theme-toggle" class="theme-toggle-btn" title="Toggle Light/Dark Mode">
         <i id="theme-icon" class="fa-solid fa-moon"></i>
@@ -56,7 +56,7 @@
     <!-- Slide-out Drawer Panel for Selected Icon -->
     <div id="text-drawer" class="text-drawer hidden">
       <div class="drawer-header">
-        <h4 id="drawer-title">Layer Controls</h4>
+        <h4 id="drawer-title"> Controle des couches </h4>
         <button id="close-drawer" class="close-btn"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
@@ -64,33 +64,33 @@
       <div class="panel-section">
         <div class="layer-control">
           <div class="layer-item">
-            <span><i class="fa-solid fa-fire-flame-curved"></i> Fire Overlay (Last 24h)</span>
+            <span><i class="fa-solid fa-fire-flame-curved"></i> Feux active (dernières 24h)</span>
             <div class="layer-actions">
               <i id="toggle-fire-btn" class="fa-solid fa-eye active-icon" title="Toggle Fire Layer on Right Map"></i>
             </div>
           </div>
 
           <div class="transparency-control">
-            <label>Tile Transparency</label>
+            <label> Trnasparence du fond </label>
             <input type="range" id="opacity-slider" min="0" max="100" value="75" class="slider">
             <span id="opacity-val" class="val-text">75%</span>
           </div>
 
           <!-- Layer Control Section inside #text-drawer -->
           <div class="panel-section">
-            <h5 class="section-subtitle">Boundary Overlays (Right Map)</h5>
+            <h5 class="section-subtitle"> Choisir un polygone de delimitation </h5>
             
             <div class="layer-control">
               <!-- Districts Checkbox -->
               <label class="checkbox-item">
                 <input type="checkbox" id="chk-districts" class="layer-checkbox" data-layer="districtMdg">
-                <span><i class="fa-solid fa-map-location-dot"></i> District Boundaries</span>
+                <span><i class="fa-solid fa-map-location-dot"></i> District </span>
               </label>
             
               <!-- Protected Areas Checkbox -->
               <label class="checkbox-item">
                 <input type="checkbox" id="chk-protected-areas" class="layer-checkbox" data-layer="PA">
-                <span><i class="fa-solid fa-tree"></i> Protected Areas</span>
+                <span><i class="fa-solid fa-tree"></i> Aire protégée </span>
               </label>
             </div>
           </div>
@@ -106,7 +106,7 @@
       <div id="app-viewport" class="viewport">
         <!-- Time Selector Pill Bar -->
         <div id="time-bar" class="time-bar">
-          <span class="time-label" id="time-bar-label">Select Time:</span>
+          <span class="time-label" id="time-bar-label"> Selection du pas de temps:</span>
           <div id="time-pills" class="time-pills"></div>
         </div>
 
@@ -114,12 +114,12 @@
         <div id="map-container" class="map-container">
           <div class="map-window">
             <div id="map-left" class="map-frame"></div>
-            <div class="map-overlay-title left"> Climate - Weather </div>
+            <div class="map-overlay-title left"> Climatologie - Le temps </div>
           </div>
 
           <div class="map-window">
             <div id="map-right" class="map-frame"></div>
-            <div class="map-overlay-title right"> Fire </div>
+            <div class="map-overlay-title right"> Feux </div>
           </div>
         </div>
       </div>
@@ -127,8 +127,8 @@
       <!-- VIEWPORT 2: ABOUT PAGE (HIDDEN BY DEFAULT) -->
       <div id="about-viewport" class="viewport hidden">
         <section class="about-page" style="padding: 2rem; color: #fff;">
-          <h2>About This Platform</h2>
-          <p>Custom weather and climate monitoring dashboard.</p>
+          <h2>A propos de cette plateforme</h2>
+          <p> Dashboard pour la climatologie : Climatologie du temps et climatologie des feux pour Madagascar. \n Previsions du temps et des indices des feux pour les 3 prochaines jours.</p>
         </section>
       </div>
 
@@ -138,7 +138,7 @@
         <div class="chart-modal-header">
           <div class="chart-title-group">
             <i class="fa-solid fa-chart-line title-icon"></i>
-            <span id="chart-modal-title" class="chart-modal-title">Climatology Overview</span>
+            <span id="chart-modal-title" class="chart-modal-title"> Climatologie </span>
           </div>
           
           <div class="chart-header-actions" style="display: flex; align-items: center; gap: 8px;">

@@ -58,9 +58,9 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
   let titleText = meta.name || data.name;
   if (!titleText) {
     if (data.point) {
-      titleText = `Climatology (${data.point.lat}°, ${data.point.lon}°)`;
+      titleText = `Climatologie (${data.point.lat}°, ${data.point.lon}°)`;
     } else {
-      titleText = 'Climatology Overview';
+      titleText = 'Aperçu de la climatologie';
     }
   }
 
@@ -80,7 +80,7 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
   const fireTrace = {
     x: months,
     y: data.fire,
-    name: 'Fires',
+    name: 'Feux',
     type: 'scatter',
     mode: 'lines',
     fill: 'tozeroy',
@@ -92,7 +92,7 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
   const rainTrace = {
     x: months,
     y: data.rain,
-    name: 'Rain (mm)',
+    name: 'Precipitations (mm)',
     type: 'bar',
     marker: {
       color: 'rgba(56, 189, 248, 0.75)',
@@ -104,7 +104,7 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
   const tempTrace = {
     x: months,
     y: data.temp,
-    name: 'Temp (°C)',
+    name: 'Temperature (°C)',
     type: 'scatter',
     mode: 'lines+markers',
     line: { color: '#f97316', width: 2.5, shape: 'spline' },
@@ -128,20 +128,20 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
       gridcolor: 'rgba(255, 255, 255, 0.05)'
     },
     yaxis: {
-      title: { text: 'Rain (mm)', font: { color: '#38bdf8', size: 10 } },
+      title: { text: 'Precipitation (mm)', font: { color: '#38bdf8', size: 10 } },
       tickfont: { color: '#38bdf8', size: 10 },
       gridcolor: 'rgba(255, 255, 255, 0.05)',
       zeroline: false
     },
     yaxis2: {
-      title: { text: 'Temp (°C)', font: { color: '#f97316', size: 10 } },
+      title: { text: 'Temperature (°C)', font: { color: '#f97316', size: 10 } },
       tickfont: { color: '#f97316', size: 10 },
       overlaying: 'y',
       side: 'right',
       zeroline: false
     },
     yaxis3: {
-      title: { text: 'Fires/cell', font: { color: '#ef4444', size: 10 } },
+      title: { text: 'Feux/parcelle', font: { color: '#ef4444', size: 10 } },
       tickfont: { color: '#ef4444', size: 10 },
       overlaying: 'y',
       side: 'right',
