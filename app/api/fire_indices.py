@@ -32,20 +32,7 @@ CLIM_NC_PATH = "data/netcdf/climatology/FIRE_climV2.nc"
 
 
 def generate_dynamic_cffdrs_seeds(target_grid, clim_nc_path):
-    """
-    Generates spatially dynamic initial seed arrays (ffmc0, dmc0, dc0) for
-    xclim, using 24h active FIRMS fire detections AND the long-term
-    MONTHLY fire climatology stored in FIRE_climV2.nc.
 
-    `target_grid` is already the ~0.05deg (5km), shapefile-masked daily
-    temperature field, so seeds and the FIRMS point-to-cell snapping below
-    are built directly at display resolution.
-
-    The climatology month is read directly off `target_grid`'s own real
-    calendar-date time coordinate (day 0's date), so the seed always
-    reflects the correct calendar month regardless of when the forecast
-    happens to run.
-    """
     lats = target_grid.latitude.values
     lons = target_grid.longitude.values
 
@@ -251,18 +238,6 @@ def compute_fire_indices(force_recompute=False):
     aifs_ds = get_aifs_dataset()
     ndvi_ds = get_ndvi_dataset()
 
-    # Pull the SAME canonical daily dataset (daily MAX temp, daily MIN RH,
-    # daily mean wind, daily total precip; local calendar days; already
-    # ~0.05deg/5km and shapefile-masked) that the weather map and the
-    # extraction endpoint use - see get_daily_aifs_dataset() in
-    # aifs_frcst.py.
-    #
-    # Daily max temperature + daily min relative humidity is the standard
-    # CFFWI daily-input proxy for "noon LST" conditions (minimum RH
-    # typically coincides with maximum temperature near solar noon) - this
-    # is the officially documented approach for driving the Canadian Fire
-    # Weather Index System from datasets where a specific noon-LST
-    # sub-daily selection isn't used directly.
     daily_ds = get_daily_aifs_dataset()
     daily_tas = daily_ds["temp_2m_celsius"]        # daily MAX
     daily_wind = daily_ds["wind_speed_10m"]        # daily MEAN
@@ -316,12 +291,7 @@ def compute_fire_indices(force_recompute=False):
 
 
 def get_fire_index_field(index_type, day_num):
-    """
-    Returns the FWI/FOPI field for `index_type` / `day_num` - already at
-    the ~0.05deg (5km), shapefile-masked resolution inherited from the
-    daily AIFS dataset. Used identically by the map (/plot) and by
-    point/polygon extraction (see app.api.forecast).
-    """
+
     cache_key = f"{index_type}_day{day_num}"
     if cache_key in FIELD_CACHE:
         return FIELD_CACHE[cache_key]
@@ -378,7 +348,7 @@ def get_fire_index_plot():
                 "#B4070C",  # Extreme
                 "#320212",  # Extreme+
             ]
-            labels = ["Low", "Moderate", "High", "Very High", "Extreme", "Extreme+"]
+            labels = ["Faible", "Modéré", "Élevé", "Très Élevé", "Extrême", "Extrême+"]
             title = "FWI"
             unit = "FWI"
             cmap = mcolors.ListedColormap(colors)
@@ -387,14 +357,14 @@ def get_fire_index_plot():
             levels = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
             colors = ["#2b83ba", "#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
             labels = [
-                "Low (<0.2)",
-                "Mod (0.2-0.4)",
-                "High (0.4-0.6)",
-                "Very High (0.6-0.8)",
-                "Extreme (>0.8)",
+                "Faible (<0.2)",
+                "Modéré (0.2-0.4)",
+                "Élevé (0.4-0.6)",
+                "Très Élevé (0.6-0.8)",
+                "Extrême (>0.8)",
             ]
             title = "FOPI"
-            unit = "Probability"
+            unit = "Probabilite"
             cmap = mcolors.ListedColormap(colors)
             norm = mcolors.BoundaryNorm(levels, cmap.N)
 

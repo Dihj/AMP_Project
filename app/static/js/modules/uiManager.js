@@ -91,7 +91,8 @@ export function renderUI() {
     const activeLabel = state.currentNav === 'MON' 
       ? state.selectedIcon 
       : `${state.leftForecastIcon} / ${state.rightForecastIcon}`;
-    drawerTitle.innerText = `${activeLabel} Layer Controls`;
+    //drawerTitle.innerText = `${activeLabel} Contrôle des couches`;
+    drawerTitle.innerText = `Contrôle des couches`;
   }
 
   // Render Sidebar Icons dynamically depending on tab structure
@@ -118,14 +119,14 @@ export function renderUI() {
       // Group 1: Left Map Weather & NDVI
       const leftLabel = document.createElement('div');
       leftLabel.className = 'sidebar-section-title';
-      leftLabel.innerText = 'LEFT MAP';
+      leftLabel.innerText = 'CARTE DU GAUCHE';
       iconBar.appendChild(leftLabel);
 
       config.leftIcons.forEach(item => {
         const iconBtn = document.createElement('button');
         iconBtn.className = `icon-btn ${state.leftForecastIcon === item.name ? 'active' : ''}`;
         iconBtn.innerHTML = `<i class="fa-solid ${item.iconClass}"></i>`;
-        iconBtn.title = `Left Map: ${item.name}`;
+        iconBtn.title = `Carte du gauche: ${item.name}`;
 
         iconBtn.addEventListener('click', () => {
           state.leftForecastIcon = item.name;
@@ -144,14 +145,14 @@ export function renderUI() {
       // Group 2: Right Map Fire Risk Indices
       const rightLabel = document.createElement('div');
       rightLabel.className = 'sidebar-section-title';
-      rightLabel.innerText = 'RIGHT MAP';
+      rightLabel.innerText = 'CARTE DU DROITE';
       iconBar.appendChild(rightLabel);
 
       config.rightIcons.forEach(item => {
         const iconBtn = document.createElement('button');
         iconBtn.className = `icon-btn ${state.rightForecastIcon === item.name ? 'active' : ''}`;
         iconBtn.innerHTML = `<i class="fa-solid ${item.iconClass}"></i>`;
-        iconBtn.title = `Right Map: ${item.name}`;
+        iconBtn.title = `Carte du droite: ${item.name}`;
 
         iconBtn.addEventListener('click', () => {
           state.rightForecastIcon = item.name;
@@ -166,7 +167,7 @@ export function renderUI() {
 
   // Render Time/Pill Selection Bar
   if (timeBarLabel) {
-    timeBarLabel.innerText = config.timeType === 'months' ? 'Select Month:' : 'Select Day:';
+    timeBarLabel.innerText = config.timeType === 'months' ? 'Selection Mois:' : 'Selection Jours:';
   }
 
   if (timePills) {

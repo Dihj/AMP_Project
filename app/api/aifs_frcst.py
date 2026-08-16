@@ -526,12 +526,14 @@ def get_forecast_plot():
     }
     var_name = var_map.get(raw_var, raw_var)
 
+
     display_config = {
-        "precipitation_surface_mm": ("Blues", "mm", "Daily Total Rainfall"),
-        "temp_2m_celsius": ("Spectral_r", "°C", "Daily Max Temperature"),
-        "wind_speed_10m": ("viridis", "m/s", "Daily Mean Wind Speed"),
-        "relative_humidity_2m": ("YlGnBu", "%", "Daily Min Relative Humidity"),
+        "precipitation_surface_mm": ("Blues", "mm", "Précipitations totales journalières"),
+        "temp_2m_celsius": ("Spectral_r", "°C", "Température maximale journalière"),
+        "wind_speed_10m": ("viridis", "m/s", "Vitesse moyenne journalière du vent"),
+        "relative_humidity_2m": ("YlGnBu", "%", "Humidité relative minimale journalière"),
     }
+
     cmap_name, unit, title_name = display_config.get(var_name, ("coolwarm", "", var_name))
 
     cache_key = f"{var_name}_day{day_num}"

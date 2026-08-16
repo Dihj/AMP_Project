@@ -11,7 +11,7 @@ export const navConfig = {
   },
   'FOR': {
     timeType: 'days',
-    timeData: ['Day 0', 'Day 1', 'Day 2'],
+    timeData: ['Jour 0', 'Jour 1', 'Jour 2'],
     // Split into left and right screen parameters
     leftIcons: [
       { name: 'Rain', iconClass: 'fa-cloud-showers-heavy', key: 'rr' },
