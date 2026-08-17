@@ -33,8 +33,8 @@ FIELD_CACHE = {}  # Caches per-day DataArrays sliced out of the daily dataset
 DAILY_CACHE = {"key": None, "dataset": None}  # Caches the canonical daily xr.Dataset (see get_daily_aifs_dataset)
 GEOMETRY_MASK_CACHE = None  # Caches the boolean land mask so it's only built ONCE
 
-DEBUG_MODE = os.environ.get("FIRE_APP_DEBUG", "false").strip().lower() in ("1", "true", "yes")
-CACHE_TTL = 43200  # 12 hours
+DEBUG_MODE = os.environ.get("FLASK_DEBUG", "false").strip().lower() in ("1", "true", "yes")
+CACHE_TTL = 21600  # 06 hours
 
 FORECAST_DIR = os.path.join("data", "forecast")
 LOCAL_ZARR_PATH = os.path.join(FORECAST_DIR, "aifs_raw_latest.zarr")
