@@ -5,6 +5,7 @@ import time
 import logging
 import pandas as pd
 import requests
+import os
 from flask import Blueprint, jsonify
 
 logger = logging.getLogger(__name__)
@@ -18,8 +19,8 @@ FIRE_CACHE = {
     "data": []
 }
 
-DEBUG_MODE = True  # Set to False for production
-CACHE_TTL = 43200  # 12 hours (in seconds)
+DEBUG_MODE = os.environ.get("FLASK_DEBUG", "false").strip().lower() in ("1", "true", "yes")
+CACHE_TTL = 21600  # 06 hours (in seconds)
 
 FIRMS_CSV_URL = "https://firms.modaps.eosdis.nasa.gov/data/active_fire/modis-c6.1/csv/MODIS_C6_1_Southern_Africa_24h.csv"
 
