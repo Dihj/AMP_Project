@@ -8,13 +8,10 @@ from PIL import Image
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 import matplotlib
 
-# Thread lock to prevent C-library execution conflicts
 NETCDF_LOCK = threading.Lock()
 
-# 1. DEFINE GLOBAL DATA CACHE (This fixes your ImportError)
 DATA_CACHE = {}
 
-# Define Colormaps
 coulPREC_colors = [
     "#CB9362", "#DABE90", "#D2D179", "#91D47D", "#5CC247",
     "#49A136", "#287733", "#2A7E61", "#309181", "#327295",

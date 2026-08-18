@@ -27,7 +27,7 @@ fire_indices_bp = Blueprint("fire_indices", __name__, url_prefix="/api/fire-indi
 logger = logging.getLogger(__name__)
 
 PLOT_CACHE = {}
-FIELD_CACHE = {}  # Caches per-day FWI/FOPI DataArrays
+FIELD_CACHE = {}
 CLIM_NC_PATH = "data/netcdf/climatology/FIRE_climV2.nc"
 
 
@@ -53,11 +53,8 @@ def generate_dynamic_cffdrs_seeds(target_grid, clim_nc_path):
     clim_risk_factor = np.zeros((len(lats), len(lons)))
 
     if os.path.exists(clim_nc_path):
-        # Opened as a context manager so the file handle is always released.
         with xr.open_dataset(clim_nc_path) as clim_ds:
-            # FIRE_climV2.nc's "fire_density" variable is indexed by month
-            # (12 monthly climatological layers) - select the layer matching
-            # this forecast's calendar month.
+
             monthly_clim = clim_ds["fire_density"].isel(time=forecast_month_idx)
 
             if "lat" in monthly_clim.dims:
@@ -226,8 +223,6 @@ def calculate_fopi_improved(
     return fopi
 
 
-
-
 def compute_fire_indices(force_recompute=False):
     cache = get_cached_indices()
     if not force_recompute and cache['fwi'] is not None and cache['fopi'] is not None:
@@ -239,10 +234,10 @@ def compute_fire_indices(force_recompute=False):
     ndvi_ds = get_ndvi_dataset()
 
     daily_ds = get_daily_aifs_dataset()
-    daily_tas = daily_ds["temp_2m_celsius"]        # daily MAX
-    daily_wind = daily_ds["wind_speed_10m"]        # daily MEAN
-    daily_hurs = daily_ds["relative_humidity_2m"]  # daily MIN
-    daily_pr = daily_ds["precipitation_surface_mm"].copy()  # daily TOTAL
+    daily_tas = daily_ds["temp_2m_celsius"]
+    daily_wind = daily_ds["wind_speed_10m"]
+    daily_hurs = daily_ds["relative_humidity_2m"]
+    daily_pr = daily_ds["precipitation_surface_mm"].copy()
     daily_pr.attrs["units"] = "mm/day"  # unit string xclim expects for precip
 
     if "latitude" in daily_tas.coords:
@@ -258,12 +253,6 @@ def compute_fire_indices(force_recompute=False):
         daily_tas, CLIM_NC_PATH
     )
 
-    # Compute CFFDRS FWI indices via xclim, recursively over day 0..N-1.
-    # xclim automatically applies the correct month-dependent day-length
-    # factors for DC/DMC internally, using `lat` and the real calendar
-    # dates on daily_tas/daily_pr/etc.'s "time" coordinate - no separate
-    # action needed beyond passing real dates, which get_daily_aifs_dataset()
-    # already does.
     dc, dmc, ffmc, isi, bui, fwi = xclim.indices.cffwis_indices(
         tas=daily_tas,
         pr=daily_pr,
@@ -307,7 +296,7 @@ def get_fire_index_field(index_type, day_num):
 
 @fire_indices_bp.route("/plot", methods=["GET"])
 def get_fire_index_plot():
-    index_type = request.args.get("index", "fwi").lower()  # 'fwi' or 'fopi'
+    index_type = request.args.get("index", "fwi").lower()
     day = int(request.args.get("day", 0))
 
     cache_key = f"{index_type}_day_{day}"
@@ -320,11 +309,6 @@ def get_fire_index_plot():
         lats = field.latitude.values
         lons = field.longitude.values
 
-        # lats/lons are pixel CENTERS, but Leaflet's ImageOverlay bounds are
-        # pixel EDGES. Using center min/max directly shifts the whole raster
-        # by half a pixel relative to true geographic points (e.g. FIRMS
-
-        # active-fire markers plotted from raw lat/lon).
         lat_res = float(np.abs(np.mean(np.diff(lats)))) if len(lats) > 1 else 0.0
         lon_res = float(np.abs(np.mean(np.diff(lons)))) if len(lons) > 1 else 0.0
 
@@ -335,10 +319,8 @@ def get_fire_index_plot():
 
         data_vals = field.values
 
-        # Styling depending on index
         if index_type == "fwi":
             # Matches the FWI gauge scale used in forecastModalManager.js -
-            # keep these two in sync if either changes.
             levels = [0, 11.2, 21.3, 38.0, 50.0, 70.0, 80.0]
             colors = [
                 "#98FBB2",  # Low
@@ -407,7 +389,6 @@ def get_fire_index_plot():
                 {"value": labels[i], "color": mcolors.to_hex(rgba)}
             )
 
-        # Real calendar date instead of a relative "Day N" label.
         real_date = pd.Timestamp(field.time.values).strftime("%Y-%m-%d")
 
         response_payload = {
@@ -430,5 +411,4 @@ def get_fire_index_plot():
             exc_info=True,
         )
         return jsonify({"status": "error", "error": str(e)}), 500
-
     

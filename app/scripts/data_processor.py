@@ -8,7 +8,7 @@ def calculate_rainfall_anomaly(current_val, baseline_avg):
 
 def process_station_data(station_id):
     """Placeholder for reading NetCDF / GeoTIFF / CSV data for a station."""
-    # Your backend spatial or climate logic here
+    
     result = {
         "station_id": station_id,
         "current_rainfall_mm": 45.2,

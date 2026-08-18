@@ -15,7 +15,6 @@ from rioxarray.merge import merge_arrays
 import xarray as xr
 from flask import Blueprint, jsonify, request
 
-# Import your existing shapefile/mask utility
 from app.scripts.spatial_calc import get_geojson_from_shapefile
 
 matplotlib.use("Agg")
@@ -23,30 +22,24 @@ logger = logging.getLogger(__name__)
 
 ndvi_bp = Blueprint("ndvi", __name__)
 
-# Directory setup: Root project directory -> ./data/NDVI/
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 NDVI_DATA_DIR = os.path.join(BASE_DIR, "data", "NDVI")
 LATEST_NDVI_PATH = os.path.join(NDVI_DATA_DIR, "latest_ndvi.nc")
 PREVIOUS_NDVI_PATH = os.path.join(NDVI_DATA_DIR, "previous_ndvi.nc")
 
-# Caches matching the AIFS pattern
 NDVI_CACHE = {"last_fetched": 0, "dataset": None}
 PLOT_CACHE = {}
 GEOMETRY_MASK_CACHE = None
 
 DEBUG_MODE = True
-CACHE_TTL = 86400 * 15  # 15 days TTL (MODIS updates every 16 days)
+CACHE_TTL = 86400 * 15
 
-MADAGASCAR_BBOX = [43.1, -25.7, 50.8, -11.9]  # [min_lon, min_lat, max_lon, max_lat]
+MADAGASCAR_BBOX = [43.1, -25.7, 50.8, -11.9] 
 
 import traceback  
 
 def download_and_save_ndvi():
-    """
-    Connects to Planetary Computer STAC API (no login needed),
-    fetches the two latest MODIS 16-day periods, and saves them
-    directly into ./data/NDVI/ as latest_ndvi.nc and previous_ndvi.nc.
-    """
+
     os.makedirs(NDVI_DATA_DIR, exist_ok=True)
     logger.info(f"Downloading NDVI to repository directory: {NDVI_DATA_DIR}")
 
@@ -73,7 +66,6 @@ def download_and_save_ndvi():
         if len(items) == 0:
             raise ValueError("No MODIS NDVI items found for Madagascar within the given date window.")
 
-        # Group items by acquisition date safely
         grouped_items = {}
         for item in items:
             dt_str = item.properties.get("datetime")
@@ -140,9 +132,7 @@ def download_and_save_ndvi():
     
     
 
-
 def get_ndvi_dataset():
-    """Returns cached dataset object or executes download pipeline."""
     current_time = time.time()
 
     if NDVI_CACHE["dataset"] is not None:
@@ -178,15 +168,11 @@ def get_ndvi_plot():
         ds = get_ndvi_dataset()
         field = ds["NDVI"]
 
-        # 1. Ensure scaling factor (0.0001) is applied if reading raw file values
-        # If the dataset was saved raw, multiply by 0.0001 here:
         if float(field.max()) > 1.5:
             field = field * 0.0001
 
-        # 2. Mask out invalid MODIS fill values (e.g., water/clouds usually stored as < -0.2 or > 1.0)
         field = field.where((field >= -0.2) & (field <= 1.0))
 
-        # Ensure North-to-South latitude orientation
         if field.latitude[0] < field.latitude[-1]:
             field = field.reindex(latitude=field.latitude[::-1])
 
@@ -201,8 +187,7 @@ def get_ndvi_plot():
         ]
 
         data_vals = field.values
-        
-        # 3. Set proper NDVI bounds (-0.1 to 0.8)
+
         vmin, vmax = -0.1, 0.8
 
         fig = plt.figure(figsize=(6, 6), frameon=False)
@@ -213,7 +198,6 @@ def get_ndvi_plot():
         cmap = matplotlib.colormaps["YlGn"]
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-        # Use set_bad to make masked/water areas transparent white
         cmap.set_bad(color=(1, 1, 1, 0))
 
         ax.imshow(

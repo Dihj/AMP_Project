@@ -1,3 +1,5 @@
+#app/api/aifs_frcst.py
+
 import base64
 import io
 import logging
@@ -15,33 +17,27 @@ from rasterio.transform import from_bounds
 from scipy.ndimage import median_filter
 import xarray as xr
 from flask import Blueprint, jsonify, request
-
-# Import existing shapefile utility
 from app.scripts.spatial_calc import get_geojson_from_shapefile
 
-# Set non-GUI backend for server rendering
 matplotlib.use("Agg")
 
 logger = logging.getLogger(__name__)
 
 aifs_bp = Blueprint("aifs_forecast", __name__)
 
-# Global In-Memory Caches
+# Memory cache
 AIFS_CACHE = {"last_fetched": 0, "dataset": None}
-PLOT_CACHE = {}   # Caches final JSON responses: key = f"{var_name}_{day_num}"
-FIELD_CACHE = {}  # Caches per-day DataArrays sliced out of the daily dataset
-DAILY_CACHE = {"key": None, "dataset": None}  # Caches the canonical daily xr.Dataset (see get_daily_aifs_dataset)
-GEOMETRY_MASK_CACHE = None  # Caches the boolean land mask so it's only built ONCE
+PLOT_CACHE = {}
+FIELD_CACHE = {}
+DAILY_CACHE = {"key": None, "dataset": None}
+GEOMETRY_MASK_CACHE = None
 
 DEBUG_MODE = os.environ.get("FLASK_DEBUG", "false").strip().lower() in ("1", "true", "yes")
-CACHE_TTL = 21600  # 06 hours
+CACHE_TTL = 21600  # 06 hours aloh
 
 FORECAST_DIR = os.path.join("data", "forecast")
 LOCAL_ZARR_PATH = os.path.join(FORECAST_DIR, "aifs_raw_latest.zarr")
 
-# Rough rectangular pre-filter used only to keep the initial S3/Icechunk
-# query small - the REAL boundary (districtMdg shapefile) is applied by
-# regrid_and_mask_to_land() after download, on the FINAL 0.05deg grid.
 MADAGASCAR_BBOX = {
     "lat_north": -10.0,
     "lat_south": -26.0,
@@ -49,19 +45,9 @@ MADAGASCAR_BBOX = {
     "lon_east": 51.0,
 }
 
-# Madagascar / Nairobi (Africa/Nairobi, Indian/Antananarivo) is a FIXED
-# UTC+3 offset year-round - no DST anywhere in that timezone family.
 LOCAL_UTC_OFFSET_HOURS = 3
-
-# 96h of lead time comfortably covers 4 local calendar days (day 0 = today,
-# 1 = tomorrow, 2 = day after, 3 = the day after that), even accounting for
-# the ~3h UTC/local offset eating into day 0's coverage at the start.
 MAX_LEAD_HOURS = 96
 FORECAST_HORIZON_DAYS = 4
-
-# The ONLY grid saved to disk and used everywhere downstream - map, daily
-# aggregation, FWI/FOPI, and point/polygon extraction all read this same
-# ~0.05deg (~5km) shapefile-masked data.
 TARGET_GRID_RESOLUTION_DEG = 0.05
 
 
@@ -98,7 +84,7 @@ def get_cached_land_mask(lats, lons, layer_key="districtMdg"):
             geometries,
             out_shape=(height, width),
             transform=transform,
-            invert=False,  # False: Outside land geometry = True (Ocean / non-Madagascar)
+            invert=False,
         )
 
         GEOMETRY_MASK_CACHE = mask
@@ -123,20 +109,14 @@ def regrid_and_mask_to_land(ds, layer_key="districtMdg", target_resolution=TARGE
             coords={"latitude": target_lats, "longitude": target_lons},
             dims=("latitude", "longitude"),
         )
-        regridded = regridded.where(~is_ocean_da)  # keep where NOT ocean; NaN elsewhere
+        regridded = regridded.where(~is_ocean_da)
     else:
         logger.warning("Land mask unavailable - saving regridded data WITHOUT shapefile masking.")
 
     return regridded
 
-
-# A grid cell's per-step precip rate must exceed BOTH this multiple of its
-# local neighborhood median AND this absolute floor to be treated as a
-# despike candidate - the floor (~5mm/hr equivalent) keeps this from
-# touching ordinary light/moderate rain variability; only isolated,
-# extreme, non-spatially-coherent values get corrected.
 PRECIP_SPIKE_RATIO = 5.0
-PRECIP_SPIKE_FLOOR_KG_M2_S = 5.0 / 3600.0  # ~5 mm/hr, in kg m-2 s-1
+PRECIP_SPIKE_FLOOR_KG_M2_S = 5.0 / 3600.0
 
 
 def despike_precip_rate(precip_da, neighborhood=3):
@@ -222,7 +202,6 @@ def download_and_save_aifs():
     loaded_ds = clear_zarr_encodings(loaded_ds)
     logger.info(f"[Timing] Download+load: {time.time() - t_download:.1f}s")
 
-    # --- Derive per-step variables at NATIVE resolution ---
 
     # 1. Temperature in degC (already degree_Celsius per the AIFS catalog).
     if "temperature_2m" in loaded_ds:
@@ -237,10 +216,6 @@ def download_and_save_aifs():
         loaded_ds["relative_humidity_2m"].attrs["units"] = "%"
 
     # 3. Precipitation in mm (CUMULATIVE since init_time). precipitation_surface
-    # is kg m-2 s-1 ("average rate since previous forecast step", ~mm/s) - NOT
-    # an accumulated total, and NOT in meters. Despike the RATE at native
-    # resolution first (most precise place to catch an isolated bad value),
-    # then convert to per-step mm and cumulatively sum.
     t_despike = time.time()
     if "precipitation_surface" in loaded_ds:
         despiked_rate = despike_precip_rate(loaded_ds["precipitation_surface"])
@@ -285,18 +260,11 @@ def download_and_save_aifs():
     logger.info(f"[Timing] Save to zarr: {time.time() - t_save:.1f}s")
     logger.info(f"Successfully saved shapefile-masked, 5km forecast to '{LOCAL_ZARR_PATH}'")
 
-    # A fresh forecast run invalidates EVERY downstream cache built from the
-    # old one - rendered map cache, per-day field cache, and the canonical
-    # daily-aggregated dataset. All three must be cleared together.
     PLOT_CACHE.clear()
     FIELD_CACHE.clear()
     DAILY_CACHE["key"] = None
     DAILY_CACHE["dataset"] = None
 
-    # Pre-warm the daily dataset AND FWI/FOPI right now, rather than waiting
-    # for the first user request to trigger (and pay for) that computation.
-    # Deferred/local import to avoid a circular import (fire_indices.py
-    # imports from this module at the top level).
     AIFS_CACHE["dataset"] = loaded_ds
     AIFS_CACHE["last_fetched"] = time.time()
     try:
@@ -356,7 +324,6 @@ def build_local_day_groups(lead_time_da, init_time_val, max_days=FORECAST_HORIZO
         )
         unique_dates = unique_dates[1:]
 
-        # Restrict strictly to the target number of days (FORECAST_HORIZON_DAYS)
     unique_dates = unique_dates[:max_days]
 
     day_dates, day_step_idx = [], []
@@ -549,10 +516,6 @@ def get_forecast_plot():
         min_lat, max_lat = float(np.min(lats)), float(np.max(lats))
         min_lon, max_lon = float(np.min(lons)), float(np.max(lons))
 
-        # lats/lons are pixel CENTERS, but Leaflet's ImageOverlay bounds are
-        # pixel EDGES. Using center min/max directly shifts the whole raster
-        # by half a pixel relative to true geographic points (e.g. FIRMS
-        # active-fire markers plotted from raw lat/lon).
         lat_res = float(np.abs(np.mean(np.diff(lats)))) if len(lats) > 1 else 0.0
         lon_res = float(np.abs(np.mean(np.diff(lons)))) if len(lons) > 1 else 0.0
 
@@ -600,8 +563,6 @@ def get_forecast_plot():
             hex_color = mcolors.to_hex(rgba)
             legend_ticks.append({"value": round(float(val), 1), "color": hex_color})
 
-        # Real calendar date instead of a relative "Today/Tomorrow" label -
-        # read directly off the field's own time coordinate.
         real_date = pd.Timestamp(field.time.values).strftime("%Y-%m-%d")
 
         response_payload = {
@@ -621,5 +582,3 @@ def get_forecast_plot():
     except Exception as e:
         logger.error(f"Failed to generate forecast plot: {e}", exc_info=True)
         return jsonify({"status": "error", "error": str(e)}), 500
-
-        
