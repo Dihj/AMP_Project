@@ -12,13 +12,11 @@ let fireLayerRight = null;
 let adminLinesLeft = null;
 let adminLinesRight = null; 
 
-// Store interactive Leaflet layer groups for left and right maps
 const boundaryLayers = {
   districtMdg: { left: null, right: null },
   PA: { left: null, right: null }
 };
 
-// Store raw GeoJSON feature collections for spatial point-in-polygon queries
 const boundaryGeoData = {
   districtMdg: null,
   PA: null
@@ -27,7 +25,6 @@ const boundaryGeoData = {
 export function getMapLeft() { return mapLeft; }
 export function getMapRight() { return mapRight; }
 
-// Basemap Tile URLs for Dark and Light modes
 const TILE_URLS = {
   dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
   light: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png' 
@@ -39,9 +36,6 @@ function isLightMode() {
          document.documentElement.getAttribute('data-theme') === 'light';
 }
 
-/**
- * Live Theme Switcher: Call this or let the MutationObserver update tiles automatically
- */
 export function updateMapTheme() {
   if (!leftTileLayer || !rightTileLayer) return;
 
@@ -152,13 +146,9 @@ export function toggleFireLayer(visible) {
   else mapRight.removeLayer(fireLayerRight);
 }
 
-/**
- * Toggles interactive District or Protected Area (PA) polygons on BOTH maps
- */
 export function toggleBoundaryLayer(selectedKey, isChecked) {
   if (!mapLeft || !mapRight) return;
 
-  // IF UNCHECKED: Remove layer from both maps and reset state
   if (!isChecked) {
     if (boundaryLayers[selectedKey].left && mapLeft.hasLayer(boundaryLayers[selectedKey].left)) {
       mapLeft.removeLayer(boundaryLayers[selectedKey].left);
@@ -169,14 +159,12 @@ export function toggleBoundaryLayer(selectedKey, isChecked) {
     return;
   }
 
-  // IF CHECKED AND ALREADY LOADED: Re-add layers to both maps
   if (boundaryLayers[selectedKey].left && boundaryLayers[selectedKey].right) {
     boundaryLayers[selectedKey].left.addTo(mapLeft);
     boundaryLayers[selectedKey].right.addTo(mapRight);
     return;
   }
 
-  // FETCH SHAPEFILE FROM BACKEND API
   fetch(`/api/shapefile/${selectedKey}`)
     .then(res => {
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
@@ -189,14 +177,12 @@ export function toggleBoundaryLayer(selectedKey, isChecked) {
         ? { color: '#10b981', weight: 1.5, fillColor: '#10b981', fillOpacity: 0.2 }
         : { color: '#38bdf8', weight: 1.2, fillColor: '#38bdf8', fillOpacity: 0.15 };
 
-      // Create interactive layer for Left Map
       const leftLayer = L.geoJSON(geoJsonData, { 
         style: layerStyle,
         pane: 'topPolygonPane',
-        interactive: false // We use custom point-in-polygon on map click
+        interactive: false
       });
 
-      // Create interactive layer for Right Map
       const rightLayer = L.geoJSON(geoJsonData, { 
         style: layerStyle,
         pane: 'topPolygonPane',
@@ -235,7 +221,6 @@ export function setupMapClickEvents(mapLeft, mapRight) {
       const lat = parseFloat(e.latlng.lat.toFixed(4));
       const lon = parseFloat(e.latlng.lng.toFixed(4));
 
-      // Intersect active boundary polygon (District priority over PA)
       const hitFeature = findIntersectedFeature(e.latlng);
 
       if (currentNav === 'MON') {

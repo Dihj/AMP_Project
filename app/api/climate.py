@@ -19,7 +19,6 @@ def get_climate_raster():
     time_step = request.args.get('time', 'Jan')
     fixed_scale = request.args.get('fixed', 'false').lower() == 'true'
 
-    # Map parameter strings safely across client aliases
     param_map = {
         'rr': 'Rain',
         'rain': 'Rain',
@@ -79,9 +78,8 @@ def get_climate_timeseries():
     if geometry:
         try:
             poly = shape(geometry)
-            poly_bounds = poly.bounds  # (min_lon, min_lat, max_lon, max_lat)
+            poly_bounds = poly.bounds
 
-            # Pre-filter using bounding box
             lat_mask = (ref_lats >= poly_bounds[1]) & (ref_lats <= poly_bounds[3])
             lon_mask = (ref_lons >= poly_bounds[0]) & (ref_lons <= poly_bounds[2])
 
@@ -147,7 +145,6 @@ def get_climate_timeseries():
             print(f"[ERROR] Polygon timeseries extraction failed: {e}")
             return jsonify({'error': str(e)}), 500
 
-    # Fallback to single point lookup
     try:
         lat = float(request.args.get('lat'))
         lon = float(request.args.get('lon'))
@@ -174,4 +171,3 @@ def get_climate_timeseries():
         'temp': temp_vals,
         'fire': fire_vals
     })
-

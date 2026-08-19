@@ -18,23 +18,15 @@ forecast_bp = Blueprint('forecast', __name__)
 # NASA FIRMS 24h CSV URL for Southern Africa
 FIRMS_CSV_URL = "https://firms.modaps.eosdis.nasa.gov/data/active_fire/modis-c6.1/csv/MODIS_C6_1_Southern_Africa_24h.csv"
 
-# Global cache for FIRMS active fires to avoid downloading on every click
 FIRMS_CACHE = {
     "last_fetched": 0,
     "df": None
 }
 
-# How many forecast days the summary endpoint reports (day 0 = today).
-# Tied to aifs_frcst.FORECAST_HORIZON_DAYS so this can never drift out of
-# sync with how many days of data actually exist.
 NUM_DAYS = FORECAST_HORIZON_DAYS
 
-
 def get_latest_firms_data(ttl_seconds=900):
-    """
-    Downloads and caches NASA FIRMS 24h active fire CSV for Southern Africa.
-    Refreshes every 15 minutes (900s).
-    """
+
     now = time.time()
     if FIRMS_CACHE["df"] is not None and (now - FIRMS_CACHE["last_fetched"] < ttl_seconds):
         return FIRMS_CACHE["df"]
@@ -220,11 +212,7 @@ def _extract_from_field(field, lat=None, lon=None, geometry_dict=None):
 
 
 def extract_series(field_fn, num_days=NUM_DAYS, lat=None, lon=None, geometry_dict=None):
-    """
-    Loops day 0..num_days-1, fetches the canonical field for each day via
-    field_fn(day) (pass get_daily_weather_field or get_fire_index_field),
-    and extracts the point/polygon value from it.
-    """
+
     out = []
     for day in range(num_days):
         try:
@@ -277,7 +265,6 @@ def get_forecast_summary():
     fire_info = compute_fire_proximity_firms(geometry_dict, lat, lon)
     ndvi_trend = compute_ndvi_trend_from_files(lat, lon, geometry_dict)
 
-    # Build the raw data list mapping time/day step, parameters, and extracted values
     raw_data = []
     param_map = [
         ("Temperature (°C)", temperature),
@@ -310,5 +297,3 @@ def get_forecast_summary():
         "ndvi_trend": ndvi_trend,
         "raw_data": raw_data
     })
-
-

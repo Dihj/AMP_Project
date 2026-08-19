@@ -1,5 +1,4 @@
 // static/js/modules/forecastLayers.js
-//import { getMapLeft, getMapRight } from './mapManager.js';
 import { getMapLeft, getMapRight, showMapLoading, hideMapLoading } from './mapManager.js';
 
 let leftForecastOverlay = null;

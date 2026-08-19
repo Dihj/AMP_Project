@@ -4,13 +4,7 @@ import geopandas as gpd
 from shapely.validation import make_valid
 
 def get_geojson_from_shapefile(layer_key, base_dir='./data'):
-    """
-    Reads shapefiles located in /data/shapefile/ and returns a GeoJSON dict.
-    layer_key mapping:
-      - 'PA' -> /data/shapefile/PA.shp
-      - 'district' -> /data/shapefile/district.shp
-    """
-    # Map layer keys to your exact file names
+
     filename_map = {
         'PA': 'PA.shp',
         'districtMdg': 'districtMdg.shp'
@@ -24,7 +18,6 @@ def get_geojson_from_shapefile(layer_key, base_dir='./data'):
     if not os.path.exists(shp_path):
         raise FileNotFoundError(f"Shapefile not found at: {shp_path}")
 
-    # Read shapefile
     gdf = gpd.read_file(shp_path)
     gdf['geometry'] = gdf['geometry'].apply(lambda geom: make_valid(geom) if geom is not None else None)
     try:

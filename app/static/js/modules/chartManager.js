@@ -1,8 +1,5 @@
 // static/js/modules/chartManager.js
 
-/**
- * Exports the complete chart modal as a high-resolution PNG using html2canvas
- */
 function downloadChartAsPNG(titleText) {
   const modalElem = document.getElementById('chart-container');
   if (!modalElem) return;
@@ -25,9 +22,9 @@ function downloadChartAsPNG(titleText) {
   }
 
   html2canvas(modalElem, {
-    backgroundColor: '#0f172a', // Matches slate-900 background
+    backgroundColor: '#0f172a',
     useCORS: true,
-    scale: 2, // High resolution capture
+    scale: 2,
     logging: false
   }).then(canvas => {
     if (downloadBtn) {
@@ -54,7 +51,6 @@ function downloadChartAsPNG(titleText) {
 export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
   const months = data.months;
 
-  // 1. Determine title text for the HTML Modal Header
   let titleText = meta.name || data.name;
   if (!titleText) {
     if (data.point) {
@@ -64,19 +60,16 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
     }
   }
 
-  // Update HTML header text
   const headerTitleEl = document.getElementById('chart-modal-title');
   if (headerTitleEl) {
     headerTitleEl.textContent = titleText;
   }
 
-  // Attach PNG download event listener
   const downloadBtn = document.getElementById('download-chart-btn');
   if (downloadBtn) {
     downloadBtn.onclick = () => downloadChartAsPNG(titleText);
   }
 
-  // 2. Traces
   const fireTrace = {
     x: months,
     y: data.fire,
@@ -112,7 +105,6 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
     yaxis: 'y2'
   };
 
-  // 3. Layout
   const layout = {
     paper_bgcolor: 'transparent',
     plot_bgcolor: 'transparent',
@@ -156,4 +148,3 @@ export function renderOmbrothermicFireChart(containerId, data, meta = {}) {
 
   Plotly.newPlot('chart-plotly-target', [fireTrace, rainTrace, tempTrace], layout, config);
 }
-

@@ -5,13 +5,10 @@ let leftLegendControl = null;
 
 let rightClimateOverlay = null;
 let rightLegendControl = null;
-
-// Track active fetch requests so we can cancel them on tab switches
 let leftFetchController = null;
 let rightFetchController = null;
 
 export function clearLeftClimateLayer(mapLeft) {
-  // Abort any pending network request immediately
   if (leftFetchController) {
     leftFetchController.abort();
     leftFetchController = null;
@@ -24,7 +21,6 @@ export function clearLeftClimateLayer(mapLeft) {
     leftClimateOverlay = null;
   }
 
-  // Deep cleanup: remove any L.ImageOverlay elements attached to mapLeft
   mapLeft.eachLayer((layer) => {
     if (layer instanceof L.ImageOverlay) {
       mapLeft.removeLayer(layer);
@@ -65,7 +61,6 @@ export function clearRightClimateLayer(mapRight) {
 export function updateLeftClimateLayer(mapLeft, parameter, timeStep, fixedScale = false) {
   if (!mapLeft) return;
 
-  // Abort any previously running request before starting a new one
   if (leftFetchController) {
     leftFetchController.abort();
   }
@@ -84,9 +79,7 @@ export function updateLeftClimateLayer(mapLeft, parameter, timeStep, fixedScale 
     .then(data => {
       if (!data.imageUrl || !data.bounds) return;
 
-      // Import state dynamically to verify active tab before rendering
       import('./uiManager.js').then(uiModule => {
-        // SAFETY GUARD: If the user navigated away from MON while fetching, do NOT draw
         if (uiModule.state.currentNav !== 'MON') {
           clearLeftClimateLayer(mapLeft);
           return;
@@ -94,11 +87,10 @@ export function updateLeftClimateLayer(mapLeft, parameter, timeStep, fixedScale 
 
         clearLeftClimateLayer(mapLeft);
 
-        // --- FIXED HERE: Assign leftClimatePane to L.imageOverlay ---
         leftClimateOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
           opacity: 0.8,
           interactive: false,
-          pane: 'leftClimatePane' // Sits on z-index 350, underneath adminLinesPane (z-index 640)
+          pane: 'leftClimatePane'
         });
         leftClimateOverlay.addTo(mapLeft);
 
@@ -142,7 +134,6 @@ export function updateRightClimateLayer(mapRight, parameter = 'Fire', timeStep, 
 
         clearRightClimateLayer(mapRight);
 
-        // --- OPTIONAL: Assign right map climate pane if needed ---
         rightClimateOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
           opacity: 0.8,
           interactive: false
@@ -198,4 +189,3 @@ function createLegendControl(data, fixedScale, position) {
 
   return legendControl;
 }
-

@@ -1,3 +1,5 @@
+#app/api/aifs_frcst.py
+
 import base64
 import io
 import logging
@@ -15,33 +17,27 @@ from rasterio.transform import from_bounds
 from scipy.ndimage import median_filter
 import xarray as xr
 from flask import Blueprint, jsonify, request
-
-# Import existing shapefile utility
 from app.scripts.spatial_calc import get_geojson_from_shapefile
 
-# Set non-GUI backend for server rendering
 matplotlib.use("Agg")
 
 logger = logging.getLogger(__name__)
 
 aifs_bp = Blueprint("aifs_forecast", __name__)
 
-# Global In-Memory Caches
+# Memory cache
 AIFS_CACHE = {"last_fetched": 0, "dataset": None}
-PLOT_CACHE = {}   # Caches final JSON responses: key = f"{var_name}_{day_num}"
-FIELD_CACHE = {}  # Caches per-day DataArrays sliced out of the daily dataset
-DAILY_CACHE = {"key": None, "dataset": None}  # Caches the canonical daily xr.Dataset (see get_daily_aifs_dataset)
-GEOMETRY_MASK_CACHE = None  # Caches the boolean land mask so it's only built ONCE
+PLOT_CACHE = {}
+FIELD_CACHE = {}
+DAILY_CACHE = {"key": None, "dataset": None}
+GEOMETRY_MASK_CACHE = None
 
 DEBUG_MODE = os.environ.get("FLASK_DEBUG", "false").strip().lower() in ("1", "true", "yes")
-CACHE_TTL = 21600  # 06 hours
+CACHE_TTL = 21600  # 06 hours aloh
 
 FORECAST_DIR = os.path.join("data", "forecast")
 LOCAL_ZARR_PATH = os.path.join(FORECAST_DIR, "aifs_raw_latest.zarr")
 
-# Rough rectangular pre-filter used only to keep the initial S3/Icechunk
-# query small - the REAL boundary (districtMdg shapefile) is applied by
-# regrid_and_mask_to_land() after download, on the FINAL 0.05deg grid.
 MADAGASCAR_BBOX = {
     "lat_north": -10.0,
     "lat_south": -26.0,
@@ -49,19 +45,9 @@ MADAGASCAR_BBOX = {
     "lon_east": 51.0,
 }
 
-# Madagascar / Nairobi (Africa/Nairobi, Indian/Antananarivo) is a FIXED
-# UTC+3 offset year-round - no DST anywhere in that timezone family.
 LOCAL_UTC_OFFSET_HOURS = 3
-
-# 96h of lead time comfortably covers 4 local calendar days (day 0 = today,
-# 1 = tomorrow, 2 = day after, 3 = the day after that), even accounting for
-# the ~3h UTC/local offset eating into day 0's coverage at the start.
 MAX_LEAD_HOURS = 96
 FORECAST_HORIZON_DAYS = 4
-
-# The ONLY grid saved to disk and used everywhere downstream - map, daily
-# aggregation, FWI/FOPI, and point/polygon extraction all read this same
-# ~0.05deg (~5km) shapefile-masked data.
 TARGET_GRID_RESOLUTION_DEG = 0.05
 
 
@@ -98,7 +84,7 @@ def get_cached_land_mask(lats, lons, layer_key="districtMdg"):
             geometries,
             out_shape=(height, width),
             transform=transform,
-            invert=False,  # False: Outside land geometry = True (Ocean / non-Madagascar)
+            invert=False,
         )
 
         GEOMETRY_MASK_CACHE = mask
@@ -123,20 +109,14 @@ def regrid_and_mask_to_land(ds, layer_key="districtMdg", target_resolution=TARGE
             coords={"latitude": target_lats, "longitude": target_lons},
             dims=("latitude", "longitude"),
         )
-        regridded = regridded.where(~is_ocean_da)  # keep where NOT ocean; NaN elsewhere
+        regridded = regridded.where(~is_ocean_da)
     else:
         logger.warning("Land mask unavailable - saving regridded data WITHOUT shapefile masking.")
 
     return regridded
 
-
-# A grid cell's per-step precip rate must exceed BOTH this multiple of its
-# local neighborhood median AND this absolute floor to be treated as a
-# despike candidate - the floor (~5mm/hr equivalent) keeps this from
-# touching ordinary light/moderate rain variability; only isolated,
-# extreme, non-spatially-coherent values get corrected.
 PRECIP_SPIKE_RATIO = 5.0
-PRECIP_SPIKE_FLOOR_KG_M2_S = 5.0 / 3600.0  # ~5 mm/hr, in kg m-2 s-1
+PRECIP_SPIKE_FLOOR_KG_M2_S = 5.0 / 3600.0
 
 
 def despike_precip_rate(precip_da, neighborhood=3):
@@ -222,7 +202,6 @@ def download_and_save_aifs():
     loaded_ds = clear_zarr_encodings(loaded_ds)
     logger.info(f"[Timing] Download+load: {time.time() - t_download:.1f}s")
 
-    # --- Derive per-step variables at NATIVE resolution ---
 
     # 1. Temperature in degC (already degree_Celsius per the AIFS catalog).
     if "temperature_2m" in loaded_ds:
@@ -237,10 +216,6 @@ def download_and_save_aifs():
         loaded_ds["relative_humidity_2m"].attrs["units"] = "%"
 
     # 3. Precipitation in mm (CUMULATIVE since init_time). precipitation_surface
-    # is kg m-2 s-1 ("average rate since previous forecast step", ~mm/s) - NOT
-    # an accumulated total, and NOT in meters. Despike the RATE at native
-    # resolution first (most precise place to catch an isolated bad value),
-    # then convert to per-step mm and cumulatively sum.
     t_despike = time.time()
     if "precipitation_surface" in loaded_ds:
         despiked_rate = despike_precip_rate(loaded_ds["precipitation_surface"])
@@ -285,23 +260,19 @@ def download_and_save_aifs():
     logger.info(f"[Timing] Save to zarr: {time.time() - t_save:.1f}s")
     logger.info(f"Successfully saved shapefile-masked, 5km forecast to '{LOCAL_ZARR_PATH}'")
 
-    # A fresh forecast run invalidates EVERY downstream cache built from the
-    # old one - rendered map cache, per-day field cache, and the canonical
-    # daily-aggregated dataset. All three must be cleared together.
     PLOT_CACHE.clear()
     FIELD_CACHE.clear()
     DAILY_CACHE["key"] = None
     DAILY_CACHE["dataset"] = None
+    NOON_DAILY_CACHE["key"] = None
+    NOON_DAILY_CACHE["dataset"] = None
 
-    # Pre-warm the daily dataset AND FWI/FOPI right now, rather than waiting
-    # for the first user request to trigger (and pay for) that computation.
-    # Deferred/local import to avoid a circular import (fire_indices.py
-    # imports from this module at the top level).
     AIFS_CACHE["dataset"] = loaded_ds
     AIFS_CACHE["last_fetched"] = time.time()
     try:
         t_warm = time.time()
         get_daily_aifs_dataset()
+        get_daily_noon_aifs_dataset()
         from app.api.fire_indices import compute_fire_indices
         compute_fire_indices(force_recompute=True)
         logger.info(f"[Timing] Pre-warm daily dataset + FWI/FOPI: {time.time() - t_warm:.1f}s")
@@ -356,7 +327,6 @@ def build_local_day_groups(lead_time_da, init_time_val, max_days=FORECAST_HORIZO
         )
         unique_dates = unique_dates[1:]
 
-        # Restrict strictly to the target number of days (FORECAST_HORIZON_DAYS)
     unique_dates = unique_dates[:max_days]
 
     day_dates, day_step_idx = [], []
@@ -368,6 +338,113 @@ def build_local_day_groups(lead_time_da, init_time_val, max_days=FORECAST_HORIZO
         day_step_idx.append(idx)
 
     return day_dates, day_step_idx, local_time
+
+
+def _select_local_noon_step_indices(lead_time_da, init_time_val, day_dates, day_step_idx,
+                                     target_local_hour=12):
+
+    init_ts = pd.Timestamp(init_time_val)
+    valid_time_utc = init_ts + pd.to_timedelta(lead_time_da.values)
+    local_time = pd.DatetimeIndex(valid_time_utc) + pd.Timedelta(hours=LOCAL_UTC_OFFSET_HOURS)
+
+    noon_step_idx = []
+    for d, idx_group in zip(day_dates, day_step_idx):
+        day_local_times = local_time[idx_group]
+        target = pd.Timestamp(d) + pd.Timedelta(hours=target_local_hour)
+        deltas = np.abs((day_local_times - target).total_seconds())
+        best = idx_group[int(np.argmin(deltas))]
+        noon_step_idx.append(int(best))
+        chosen_local_time = local_time[best]
+        offset_min = (chosen_local_time - target).total_seconds() / 60.0
+        if abs(offset_min) > 90:
+            logger.warning(
+                f"[Noon Sampling] Closest available step to local noon on "
+                f"{pd.Timestamp(d).date()} is {chosen_local_time.strftime('%H:%M')} "
+                f"local ({offset_min:+.0f} min from noon) - forecast step "
+                "cadence is coarser than desired for CFFDRS noon-observation "
+                "fidelity. Consider a finer AIFS output cadence if/when "
+                "available."
+            )
+    return noon_step_idx
+
+
+def _reduce_daily_noon(da, noon_step_idx, dim="lead_time"):
+    """Select the single local-noon-closest step for each local day -
+    used for CFFDRS tas/hurs/sfcWind inputs (see
+    _select_local_noon_step_indices)."""
+    vals = [da.isel({dim: idx}) for idx in noon_step_idx]
+    return xr.concat(vals, dim="time")
+
+
+NOON_DAILY_CACHE = {"key": None, "dataset": None}
+
+
+def get_daily_noon_aifs_dataset():
+
+    ds = get_aifs_dataset()
+
+    if "init_time" in ds.coords:
+        init_time_val = np.atleast_1d(ds["init_time"].values)[0]
+    else:
+        init_time_val = pd.Timestamp.now().floor("D")
+
+    cache_key = str(init_time_val)
+    if NOON_DAILY_CACHE["key"] == cache_key and NOON_DAILY_CACHE["dataset"] is not None:
+        return NOON_DAILY_CACHE["dataset"]
+
+    if "lead_time" not in ds.dims:
+        raise KeyError("Expected 'lead_time' dimension in AIFS dataset.")
+
+    day_dates, day_step_idx, _ = build_local_day_groups(ds["lead_time"], init_time_val)
+    if len(day_dates) == 0:
+        raise RuntimeError("No forecast steps available to build the noon-sampled AIFS dataset.")
+
+    noon_step_idx = _select_local_noon_step_indices(
+        ds["lead_time"], init_time_val, day_dates, day_step_idx
+    )
+
+    tas = _drop_singleton_init_time(ds["temp_2m_celsius"])
+    wind = _drop_singleton_init_time(ds["wind_speed_10m"])
+    rh = _drop_singleton_init_time(ds["relative_humidity_2m"])
+    pr_cumulative = _drop_singleton_init_time(ds["precipitation_surface_mm"])
+
+    noon_tas = _reduce_daily_noon(tas, noon_step_idx).load()
+    noon_wind = _reduce_daily_noon(wind, noon_step_idx).load()
+    noon_rh = _reduce_daily_noon(rh, noon_step_idx).load()
+    # Precipitation stays a full 24h accumulation (per spec) - reuse the
+    # existing accumulation reducer, NOT noon sampling.
+    daily_pr = _reduce_daily_precip_total(pr_cumulative, day_step_idx).load()
+
+    time_coord = np.array(day_dates, dtype="datetime64[ns]")
+    for da in (noon_tas, noon_wind, noon_rh, daily_pr):
+        da.coords["time"] = ("time", time_coord)
+
+    noon_tas.name = "temp_2m_celsius"
+    noon_tas.attrs["units"] = "degC"
+    noon_tas.attrs["description"] = "Local-noon (~12:00 UTC+3) temperature - CFFDRS input"
+    noon_wind.name = "wind_speed_10m"
+    noon_wind.attrs["units"] = "m/s"
+    noon_wind.attrs["description"] = "Local-noon (~12:00 UTC+3) wind speed - CFFDRS input"
+    noon_rh.name = "relative_humidity_2m"
+    noon_rh.attrs["units"] = "%"
+    noon_rh.attrs["description"] = "Local-noon (~12:00 UTC+3) relative humidity - CFFDRS input"
+    daily_pr.name = "precipitation_surface_mm"
+    daily_pr.attrs["units"] = "mm"
+    daily_pr.attrs["description"] = "24-hour accumulated precipitation - CFFDRS input"
+
+    noon_tas = noon_tas.drop_vars(["valid_time", "lead_time"], errors="ignore")
+    daily_pr = daily_pr.drop_vars(["valid_time", "lead_time"], errors="ignore")
+
+    daily_ds = xr.Dataset({
+        "temp_2m_celsius": noon_tas,
+        "wind_speed_10m": noon_wind,
+        "relative_humidity_2m": noon_rh,
+        "precipitation_surface_mm": daily_pr,
+    })
+
+    NOON_DAILY_CACHE["key"] = cache_key
+    NOON_DAILY_CACHE["dataset"] = daily_ds
+    return daily_ds
 
 
 def _drop_singleton_init_time(da):
@@ -549,10 +626,6 @@ def get_forecast_plot():
         min_lat, max_lat = float(np.min(lats)), float(np.max(lats))
         min_lon, max_lon = float(np.min(lons)), float(np.max(lons))
 
-        # lats/lons are pixel CENTERS, but Leaflet's ImageOverlay bounds are
-        # pixel EDGES. Using center min/max directly shifts the whole raster
-        # by half a pixel relative to true geographic points (e.g. FIRMS
-        # active-fire markers plotted from raw lat/lon).
         lat_res = float(np.abs(np.mean(np.diff(lats)))) if len(lats) > 1 else 0.0
         lon_res = float(np.abs(np.mean(np.diff(lons)))) if len(lons) > 1 else 0.0
 
@@ -600,8 +673,6 @@ def get_forecast_plot():
             hex_color = mcolors.to_hex(rgba)
             legend_ticks.append({"value": round(float(val), 1), "color": hex_color})
 
-        # Real calendar date instead of a relative "Today/Tomorrow" label -
-        # read directly off the field's own time coordinate.
         real_date = pd.Timestamp(field.time.values).strftime("%Y-%m-%d")
 
         response_payload = {
@@ -622,4 +693,96 @@ def get_forecast_plot():
         logger.error(f"Failed to generate forecast plot: {e}", exc_info=True)
         return jsonify({"status": "error", "error": str(e)}), 500
 
-        
+
+
+
+def download_historical_day_daily_means(target_date):
+
+    target_date = pd.Timestamp(target_date).normalize()
+ 
+    storage = icechunk.s3_storage(
+        bucket="dynamical-ecmwf-aifs-single",
+        prefix="ecmwf-aifs-single-forecast/v0.1.0.icechunk",
+        region="us-west-2",
+        anonymous=True,
+    )
+    repo = icechunk.Repository.open(storage=storage)
+    session = repo.readonly_session(branch="main")
+    ds = xr.open_zarr(session.store, consolidated=False)
+ 
+    requested_vars = [
+        "temperature_2m",
+        "dew_point_temperature_2m",
+        "precipitation_surface",
+        "wind_u_10m",
+        "wind_v_10m",
+    ]
+    available_vars = [v for v in requested_vars if v in ds.data_vars]
+    ds_sub = ds[available_vars]
+ 
+    init_times = pd.to_datetime(ds_sub.init_time.values)
+    same_day_runs = init_times[init_times.normalize() == target_date]
+    if len(same_day_runs) == 0:
+        raise ValueError(
+            f"No AIFS init_time found in the archive for {target_date.date()} "
+            "- the rolling archive likely does not retain data that far "
+            "back. Reduce the spin-up window or use a reanalysis source "
+            "(e.g. ERA5/CDS) for longer spin-ups."
+        )
+    chosen_init = same_day_runs.min()  # earliest run of that day (~00Z)
+ 
+    window_end = np.timedelta64(24, "h")
+    regional_ds = ds_sub.sel(
+        init_time=[chosen_init],
+        lead_time=ds_sub.lead_time <= window_end,
+        latitude=slice(MADAGASCAR_BBOX["lat_north"], MADAGASCAR_BBOX["lat_south"]),
+        longitude=slice(MADAGASCAR_BBOX["lon_west"], MADAGASCAR_BBOX["lon_east"]),
+    ).load()
+    regional_ds = clear_zarr_encodings(regional_ds)
+ 
+    if "temperature_2m" in regional_ds:
+        regional_ds["temp_2m_celsius"] = regional_ds["temperature_2m"]
+ 
+    if "temperature_2m" in regional_ds and "dew_point_temperature_2m" in regional_ds:
+        regional_ds["relative_humidity_2m"] = calculate_relative_humidity(
+            regional_ds["temperature_2m"], regional_ds["dew_point_temperature_2m"]
+        )
+ 
+    if "wind_u_10m" in regional_ds and "wind_v_10m" in regional_ds:
+        regional_ds["wind_speed_10m"] = np.sqrt(
+            regional_ds["wind_u_10m"] ** 2 + regional_ds["wind_v_10m"] ** 2
+        )
+ 
+    if "precipitation_surface" in regional_ds:
+        despiked_rate = despike_precip_rate(regional_ds["precipitation_surface"])
+        lead_seconds = regional_ds["lead_time"].values.astype("timedelta64[s]").astype(np.float64)
+        step_duration_s = np.diff(lead_seconds, prepend=0.0)
+        step_duration_da = xr.DataArray(
+            step_duration_s, coords={"lead_time": regional_ds["lead_time"]}, dims=["lead_time"]
+        )
+        regional_ds["precipitation_surface_mm"] = (
+            despiked_rate * step_duration_da
+        ).cumsum(dim="lead_time")
+ 
+    regridded = regrid_and_mask_to_land(regional_ds)
+ 
+    daily_tas = regridded["temp_2m_celsius"].max(dim="lead_time", skipna=True)
+    daily_wind = regridded["wind_speed_10m"].mean(dim="lead_time", skipna=True)
+    daily_rh = regridded["relative_humidity_2m"].min(dim="lead_time", skipna=True)
+    daily_pr = regridded["precipitation_surface_mm"].isel(lead_time=-1)  # 24h total
+ 
+    daily = xr.Dataset(
+        {
+            "temp_2m_celsius": daily_tas.squeeze(drop=True),
+            "wind_speed_10m": daily_wind.squeeze(drop=True),
+            "relative_humidity_2m": daily_rh.squeeze(drop=True),
+            "precipitation_surface_mm": daily_pr.squeeze(drop=True),
+        }
+    )
+    daily = daily.expand_dims(time=[target_date])
+    daily["temp_2m_celsius"].attrs["units"] = "degC"
+    daily["wind_speed_10m"].attrs["units"] = "m/s"
+    daily["relative_humidity_2m"].attrs["units"] = "%"
+    daily["precipitation_surface_mm"].attrs["units"] = "mm"
+    return daily
+
