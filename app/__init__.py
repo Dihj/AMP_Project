@@ -1,5 +1,10 @@
 # app/__init__.py
 import os
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+os.environ.setdefault("NUMBA_CACHE_DIR", "/tmp/numba-cache")
+os.environ.setdefault("XDG_CACHE_HOME", "/tmp")
+
 import traceback
 import numpy as np
 from flask import Flask, render_template, jsonify
@@ -67,4 +72,3 @@ def create_app():
             return jsonify({'error': str(e)}), 400
 
     return app
-

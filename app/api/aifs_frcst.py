@@ -264,12 +264,15 @@ def download_and_save_aifs():
     FIELD_CACHE.clear()
     DAILY_CACHE["key"] = None
     DAILY_CACHE["dataset"] = None
+    NOON_DAILY_CACHE["key"] = None
+    NOON_DAILY_CACHE["dataset"] = None
 
     AIFS_CACHE["dataset"] = loaded_ds
     AIFS_CACHE["last_fetched"] = time.time()
     try:
         t_warm = time.time()
         get_daily_aifs_dataset()
+        get_daily_noon_aifs_dataset()
         from app.api.fire_indices import compute_fire_indices
         compute_fire_indices(force_recompute=True)
         logger.info(f"[Timing] Pre-warm daily dataset + FWI/FOPI: {time.time() - t_warm:.1f}s")
@@ -335,6 +338,113 @@ def build_local_day_groups(lead_time_da, init_time_val, max_days=FORECAST_HORIZO
         day_step_idx.append(idx)
 
     return day_dates, day_step_idx, local_time
+
+
+def _select_local_noon_step_indices(lead_time_da, init_time_val, day_dates, day_step_idx,
+                                     target_local_hour=12):
+
+    init_ts = pd.Timestamp(init_time_val)
+    valid_time_utc = init_ts + pd.to_timedelta(lead_time_da.values)
+    local_time = pd.DatetimeIndex(valid_time_utc) + pd.Timedelta(hours=LOCAL_UTC_OFFSET_HOURS)
+
+    noon_step_idx = []
+    for d, idx_group in zip(day_dates, day_step_idx):
+        day_local_times = local_time[idx_group]
+        target = pd.Timestamp(d) + pd.Timedelta(hours=target_local_hour)
+        deltas = np.abs((day_local_times - target).total_seconds())
+        best = idx_group[int(np.argmin(deltas))]
+        noon_step_idx.append(int(best))
+        chosen_local_time = local_time[best]
+        offset_min = (chosen_local_time - target).total_seconds() / 60.0
+        if abs(offset_min) > 90:
+            logger.warning(
+                f"[Noon Sampling] Closest available step to local noon on "
+                f"{pd.Timestamp(d).date()} is {chosen_local_time.strftime('%H:%M')} "
+                f"local ({offset_min:+.0f} min from noon) - forecast step "
+                "cadence is coarser than desired for CFFDRS noon-observation "
+                "fidelity. Consider a finer AIFS output cadence if/when "
+                "available."
+            )
+    return noon_step_idx
+
+
+def _reduce_daily_noon(da, noon_step_idx, dim="lead_time"):
+    """Select the single local-noon-closest step for each local day -
+    used for CFFDRS tas/hurs/sfcWind inputs (see
+    _select_local_noon_step_indices)."""
+    vals = [da.isel({dim: idx}) for idx in noon_step_idx]
+    return xr.concat(vals, dim="time")
+
+
+NOON_DAILY_CACHE = {"key": None, "dataset": None}
+
+
+def get_daily_noon_aifs_dataset():
+
+    ds = get_aifs_dataset()
+
+    if "init_time" in ds.coords:
+        init_time_val = np.atleast_1d(ds["init_time"].values)[0]
+    else:
+        init_time_val = pd.Timestamp.now().floor("D")
+
+    cache_key = str(init_time_val)
+    if NOON_DAILY_CACHE["key"] == cache_key and NOON_DAILY_CACHE["dataset"] is not None:
+        return NOON_DAILY_CACHE["dataset"]
+
+    if "lead_time" not in ds.dims:
+        raise KeyError("Expected 'lead_time' dimension in AIFS dataset.")
+
+    day_dates, day_step_idx, _ = build_local_day_groups(ds["lead_time"], init_time_val)
+    if len(day_dates) == 0:
+        raise RuntimeError("No forecast steps available to build the noon-sampled AIFS dataset.")
+
+    noon_step_idx = _select_local_noon_step_indices(
+        ds["lead_time"], init_time_val, day_dates, day_step_idx
+    )
+
+    tas = _drop_singleton_init_time(ds["temp_2m_celsius"])
+    wind = _drop_singleton_init_time(ds["wind_speed_10m"])
+    rh = _drop_singleton_init_time(ds["relative_humidity_2m"])
+    pr_cumulative = _drop_singleton_init_time(ds["precipitation_surface_mm"])
+
+    noon_tas = _reduce_daily_noon(tas, noon_step_idx).load()
+    noon_wind = _reduce_daily_noon(wind, noon_step_idx).load()
+    noon_rh = _reduce_daily_noon(rh, noon_step_idx).load()
+    # Precipitation stays a full 24h accumulation (per spec) - reuse the
+    # existing accumulation reducer, NOT noon sampling.
+    daily_pr = _reduce_daily_precip_total(pr_cumulative, day_step_idx).load()
+
+    time_coord = np.array(day_dates, dtype="datetime64[ns]")
+    for da in (noon_tas, noon_wind, noon_rh, daily_pr):
+        da.coords["time"] = ("time", time_coord)
+
+    noon_tas.name = "temp_2m_celsius"
+    noon_tas.attrs["units"] = "degC"
+    noon_tas.attrs["description"] = "Local-noon (~12:00 UTC+3) temperature - CFFDRS input"
+    noon_wind.name = "wind_speed_10m"
+    noon_wind.attrs["units"] = "m/s"
+    noon_wind.attrs["description"] = "Local-noon (~12:00 UTC+3) wind speed - CFFDRS input"
+    noon_rh.name = "relative_humidity_2m"
+    noon_rh.attrs["units"] = "%"
+    noon_rh.attrs["description"] = "Local-noon (~12:00 UTC+3) relative humidity - CFFDRS input"
+    daily_pr.name = "precipitation_surface_mm"
+    daily_pr.attrs["units"] = "mm"
+    daily_pr.attrs["description"] = "24-hour accumulated precipitation - CFFDRS input"
+
+    noon_tas = noon_tas.drop_vars(["valid_time", "lead_time"], errors="ignore")
+    daily_pr = daily_pr.drop_vars(["valid_time", "lead_time"], errors="ignore")
+
+    daily_ds = xr.Dataset({
+        "temp_2m_celsius": noon_tas,
+        "wind_speed_10m": noon_wind,
+        "relative_humidity_2m": noon_rh,
+        "precipitation_surface_mm": daily_pr,
+    })
+
+    NOON_DAILY_CACHE["key"] = cache_key
+    NOON_DAILY_CACHE["dataset"] = daily_ds
+    return daily_ds
 
 
 def _drop_singleton_init_time(da):
@@ -582,3 +692,97 @@ def get_forecast_plot():
     except Exception as e:
         logger.error(f"Failed to generate forecast plot: {e}", exc_info=True)
         return jsonify({"status": "error", "error": str(e)}), 500
+
+
+
+
+def download_historical_day_daily_means(target_date):
+
+    target_date = pd.Timestamp(target_date).normalize()
+ 
+    storage = icechunk.s3_storage(
+        bucket="dynamical-ecmwf-aifs-single",
+        prefix="ecmwf-aifs-single-forecast/v0.1.0.icechunk",
+        region="us-west-2",
+        anonymous=True,
+    )
+    repo = icechunk.Repository.open(storage=storage)
+    session = repo.readonly_session(branch="main")
+    ds = xr.open_zarr(session.store, consolidated=False)
+ 
+    requested_vars = [
+        "temperature_2m",
+        "dew_point_temperature_2m",
+        "precipitation_surface",
+        "wind_u_10m",
+        "wind_v_10m",
+    ]
+    available_vars = [v for v in requested_vars if v in ds.data_vars]
+    ds_sub = ds[available_vars]
+ 
+    init_times = pd.to_datetime(ds_sub.init_time.values)
+    same_day_runs = init_times[init_times.normalize() == target_date]
+    if len(same_day_runs) == 0:
+        raise ValueError(
+            f"No AIFS init_time found in the archive for {target_date.date()} "
+            "- the rolling archive likely does not retain data that far "
+            "back. Reduce the spin-up window or use a reanalysis source "
+            "(e.g. ERA5/CDS) for longer spin-ups."
+        )
+    chosen_init = same_day_runs.min()  # earliest run of that day (~00Z)
+ 
+    window_end = np.timedelta64(24, "h")
+    regional_ds = ds_sub.sel(
+        init_time=[chosen_init],
+        lead_time=ds_sub.lead_time <= window_end,
+        latitude=slice(MADAGASCAR_BBOX["lat_north"], MADAGASCAR_BBOX["lat_south"]),
+        longitude=slice(MADAGASCAR_BBOX["lon_west"], MADAGASCAR_BBOX["lon_east"]),
+    ).load()
+    regional_ds = clear_zarr_encodings(regional_ds)
+ 
+    if "temperature_2m" in regional_ds:
+        regional_ds["temp_2m_celsius"] = regional_ds["temperature_2m"]
+ 
+    if "temperature_2m" in regional_ds and "dew_point_temperature_2m" in regional_ds:
+        regional_ds["relative_humidity_2m"] = calculate_relative_humidity(
+            regional_ds["temperature_2m"], regional_ds["dew_point_temperature_2m"]
+        )
+ 
+    if "wind_u_10m" in regional_ds and "wind_v_10m" in regional_ds:
+        regional_ds["wind_speed_10m"] = np.sqrt(
+            regional_ds["wind_u_10m"] ** 2 + regional_ds["wind_v_10m"] ** 2
+        )
+ 
+    if "precipitation_surface" in regional_ds:
+        despiked_rate = despike_precip_rate(regional_ds["precipitation_surface"])
+        lead_seconds = regional_ds["lead_time"].values.astype("timedelta64[s]").astype(np.float64)
+        step_duration_s = np.diff(lead_seconds, prepend=0.0)
+        step_duration_da = xr.DataArray(
+            step_duration_s, coords={"lead_time": regional_ds["lead_time"]}, dims=["lead_time"]
+        )
+        regional_ds["precipitation_surface_mm"] = (
+            despiked_rate * step_duration_da
+        ).cumsum(dim="lead_time")
+ 
+    regridded = regrid_and_mask_to_land(regional_ds)
+ 
+    daily_tas = regridded["temp_2m_celsius"].max(dim="lead_time", skipna=True)
+    daily_wind = regridded["wind_speed_10m"].mean(dim="lead_time", skipna=True)
+    daily_rh = regridded["relative_humidity_2m"].min(dim="lead_time", skipna=True)
+    daily_pr = regridded["precipitation_surface_mm"].isel(lead_time=-1)  # 24h total
+ 
+    daily = xr.Dataset(
+        {
+            "temp_2m_celsius": daily_tas.squeeze(drop=True),
+            "wind_speed_10m": daily_wind.squeeze(drop=True),
+            "relative_humidity_2m": daily_rh.squeeze(drop=True),
+            "precipitation_surface_mm": daily_pr.squeeze(drop=True),
+        }
+    )
+    daily = daily.expand_dims(time=[target_date])
+    daily["temp_2m_celsius"].attrs["units"] = "degC"
+    daily["wind_speed_10m"].attrs["units"] = "m/s"
+    daily["relative_humidity_2m"].attrs["units"] = "%"
+    daily["precipitation_surface_mm"].attrs["units"] = "mm"
+    return daily
+
