@@ -1,0 +1,14 @@
+[Unit]
+Description=AMP daily AIFS forecast and fire-state refresh
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/var/www/myapp/AMP_Project
+Environment=NUMBA_CACHE_DIR=/tmp/numba-cache
+Environment=MPLCONFIGDIR=/tmp/matplotlib
+Environment=XDG_CACHE_HOME=/tmp
+ExecStart=/var/www/myapp/AMP_Project/myenv/bin/python -m app.scripts.update_operational_data

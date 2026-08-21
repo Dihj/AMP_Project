@@ -1,0 +1,11 @@
+[Unit]
+Description=Run AMP operational data refresh daily at 03:00 UTC
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+RandomizedDelaySec=0
+Unit=amp-operational-refresh.service
+
+[Install]
+WantedBy=timers.target
