@@ -32,6 +32,10 @@ logging.basicConfig(
 logger = logging.getLogger("update_fire_state")
 
 
+def utc_now_naive():
+    return pd.Timestamp.now(tz="UTC").tz_localize(None)
+
+
 # ---------------------------------------------------------------------------
 # Primary weather source: AIFS short-lead output for YESTERDAY (default -
 # no external feed required, and keeps the state one day behind the
@@ -43,7 +47,7 @@ def load_aifs_shortlead_weather_for_yesterday():
     from app.api.aifs_frcst import download_historical_day_daily_means, LOCAL_UTC_OFFSET_HOURS
 
     yesterday = (
-        pd.Timestamp.utcnow().tz_localize(None) + pd.Timedelta(hours=LOCAL_UTC_OFFSET_HOURS)
+        utc_now_naive() + pd.Timedelta(hours=LOCAL_UTC_OFFSET_HOURS)
     ).normalize() - pd.Timedelta(days=1)
 
     daily = download_historical_day_daily_means(yesterday)
@@ -189,10 +193,12 @@ def resolve_seed_state(target_date, ref_grid):
 def update_state_for_date(target_date=None, source="aifs_shortlead", weather_path=None):
 
     if source == "aifs_shortlead":
+        from app.api.aifs_frcst import LOCAL_UTC_OFFSET_HOURS
+
         # Cheap short-circuit: skip the archive fetch entirely if the
         # persisted state already covers the date we'd be advancing to.
         target_local = (
-            pd.Timestamp.utcnow().tz_localize(None) + pd.Timedelta(hours=3)
+            utc_now_naive() + pd.Timedelta(hours=LOCAL_UTC_OFFSET_HOURS)
         ).normalize() - pd.Timedelta(days=1)
         existing = load_operational_state()
         if existing is not None and existing.get("valid_date") is not None:

@@ -31,6 +31,10 @@ EMERGENCY_DEFAULTS = {
 }
 
 
+def _utc_today_naive():
+    return pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+
+
 
 _NETCDF_ALLOWED_ATTR_TYPES = (str, bytes, int, float, np.integer, np.floating, np.ndarray, list, tuple)
 
@@ -158,8 +162,8 @@ def load_operational_state(path=LATEST_STATE_PATH):
 
         if state["valid_date"] is not None:
             age_days = (
-                pd.Timestamp.utcnow().normalize()
-                - pd.Timestamp(state["valid_date"]).normalize()
+                _utc_today_naive()
+                - pd.Timestamp(state["valid_date"]).tz_localize(None).normalize()
             ).days
             if age_days > 3:
                 logger.warning(
@@ -349,4 +353,3 @@ def load_fire_initialization(target_grid, state_path=LATEST_STATE_PATH,
                         coords=spatial_coords, dims=spatial_dims,
                         attrs={"units": "dimensionless"})
     return ffmc0, dmc0, dc0, "emergency_default"
-

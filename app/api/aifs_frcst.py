@@ -269,6 +269,21 @@ def download_and_save_aifs():
 
     AIFS_CACHE["dataset"] = loaded_ds
     AIFS_CACHE["last_fetched"] = time.time()
+
+    try:
+        from app.scripts.update_fire_state import update_state_for_date
+
+        state_path = update_state_for_date(source="aifs_shortlead")
+        if state_path is not None:
+            logger.info(f"Operational fire state refreshed after AIFS download: {state_path}")
+    except Exception:
+        logger.error(
+            "Fresh AIFS forecast was saved, but operational fire-state "
+            "refresh failed. FWI/FOPI will fall back according to "
+            "fire_state_io.load_fire_initialization().",
+            exc_info=True,
+        )
+
     try:
         t_warm = time.time()
         get_daily_aifs_dataset()
@@ -785,4 +800,3 @@ def download_historical_day_daily_means(target_date):
     daily["relative_humidity_2m"].attrs["units"] = "%"
     daily["precipitation_surface_mm"].attrs["units"] = "mm"
     return daily
-
