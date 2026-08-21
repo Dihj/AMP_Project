@@ -712,6 +712,7 @@ def get_forecast_plot():
 
 
 def download_historical_day_daily_means(target_date):
+    # Ato no midownload anle data teo aloha hanaovana calcul ny FWI latest FMMC, DC, DMC
 
     target_date = pd.Timestamp(target_date).normalize()
  
