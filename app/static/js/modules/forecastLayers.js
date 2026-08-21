@@ -114,7 +114,8 @@ export function updateLeftForecastLayer(mapLeft, parameter = 'temp', day = 0) {
         leftForecastOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
           opacity: 0.8,
           interactive: false,
-          pane: 'leftClimatePane'
+          pane: 'leftClimatePane',
+          className: 'amp-raster-overlay'
         });
         leftForecastOverlay.addTo(mapLeft);
         console.log('[ForecastLayer:LEFT] overlay added to map for', url);

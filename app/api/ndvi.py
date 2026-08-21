@@ -35,6 +35,14 @@ DEBUG_MODE = False
 CACHE_TTL = 86400 * 15
 
 MADAGASCAR_BBOX = [43.1, -25.7, 50.8, -11.9] 
+RASTER_EXPORT_DPI = 200
+RASTER_EXPORT_MAX_PIXELS = 2600
+
+
+def raster_figure_size(data_vals, max_pixels=RASTER_EXPORT_MAX_PIXELS, dpi=RASTER_EXPORT_DPI):
+    height, width = np.squeeze(data_vals).shape[-2:]
+    scale = min(max_pixels / max(height, width), 1.0)
+    return (width * scale / dpi, height * scale / dpi)
 
 import traceback  
 
@@ -190,7 +198,7 @@ def get_ndvi_plot():
 
         vmin, vmax = -0.1, 0.8
 
-        fig = plt.figure(figsize=(6, 6), frameon=False)
+        fig = plt.figure(figsize=raster_figure_size(data_vals), frameon=False)
         ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])
         ax.set_axis_off()
         fig.add_axes(ax)
@@ -210,7 +218,7 @@ def get_ndvi_plot():
         )
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=150, transparent=True)
+        plt.savefig(buf, format="png", dpi=RASTER_EXPORT_DPI, transparent=True)
         buf.seek(0)
         plt.close(fig)
 
