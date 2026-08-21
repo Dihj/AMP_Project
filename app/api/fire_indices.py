@@ -17,7 +17,6 @@ import requests
 import xarray as xr
 import xclim
 from flask import Blueprint, jsonify, request
-from scipy.ndimage import gaussian_filter
 
 from app.core.dataset_cache import get_cached_indices, set_cached_indices
 from app.core.fire_state_io import load_fire_initialization
@@ -41,6 +40,14 @@ FIRMS_URL = "https://firms.modaps.eosdis.nasa.gov/data/active_fire/modis-c6.1/cs
 MADAGASCAR_FIRMS_BOUNDS = {
     "lat_min": -25.7, "lat_max": -11.9, "lon_min": 43.1, "lon_max": 50.8,
 }
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+FIRE_CLIM_PATH = os.path.join(BASE_DIR, "data", "netcdf", "climatology", "FIRE_climV2.nc")
+FIRE_CLIM_FALLBACK_PATH = os.path.join(BASE_DIR, "data", "netcdf", "climatology", "FIRE_clim.nc")
+
+FOPI_A = -3.5
+FOPI_B1_FWI = 0.08
+FOPI_B2_FUEL = 2.5
+FOPI_B3_FIRE_CLIM = 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +100,58 @@ def _latitude_for_cffwis(da):
 
 
 
-def calculate_fopi_improved(fwi, ndvi_ds, active_fire_mask, k=0.12, fwi_50=18.0):
+def _logistic(x):
+    return 1.0 / (1.0 + np.exp(-x))
+
+
+def _normalize_0_1(da):
+    upper = float(da.quantile(0.95, skipna=True))
+    if not np.isfinite(upper) or upper <= 0:
+        upper = float(da.max(skipna=True))
+    if not np.isfinite(upper) or upper <= 0:
+        return xr.zeros_like(da)
+    return (da / upper).clip(0.0, 1.0)
+
+
+def load_monthly_fire_climatology_factor(fwi):
+
+    clim_path = FIRE_CLIM_PATH if os.path.exists(FIRE_CLIM_PATH) else FIRE_CLIM_FALLBACK_PATH
+    if not os.path.exists(clim_path):
+        logger.warning(
+            f"Fire climatology not found ({FIRE_CLIM_PATH} or "
+            f"{FIRE_CLIM_FALLBACK_PATH}); FOPI fire-climatology term set to zero."
+        )
+        return xr.zeros_like(fwi)
+
+    with xr.open_dataset(clim_path) as clim_ds:
+        fire_density = clim_ds["fire_density"]
+        if "lat" in fire_density.dims:
+            fire_density = fire_density.rename({"lat": "latitude", "lon": "longitude"})
+
+        monthly_norm = _normalize_0_1(fire_density)
+        target_lats = fwi.latitude.values
+        target_lons = fwi.longitude.values
+
+        if "time" not in fwi.dims:
+            month_idx = pd.Timestamp.now().month - 1
+            clim = monthly_norm.isel(time=month_idx)
+            return clim.interp(latitude=target_lats, longitude=target_lons, method="linear").fillna(0.0).load()
+
+        clim_steps = []
+        for t in pd.to_datetime(fwi.time.values):
+            month_idx = pd.Timestamp(t).month - 1
+            clim = monthly_norm.isel(time=month_idx)
+            clim_interp = clim.interp(
+                latitude=target_lats, longitude=target_lons, method="linear"
+            ).fillna(0.0)
+            clim_steps.append(clim_interp)
+
+        out = xr.concat(clim_steps, dim=fwi.time)
+        out = out.transpose(*fwi.dims)
+        return out.load()
+
+
+def calculate_fopi_improved(fwi, ndvi_ds, active_fire_mask=None):
 
     ndvi_key = "NDVI" if "NDVI" in ndvi_ds else list(ndvi_ds.data_vars)[0]
     logger.info(f"Using NDVI variable: {ndvi_key} with shape {ndvi_ds[ndvi_key].shape}")
@@ -109,32 +167,38 @@ def calculate_fopi_improved(fwi, ndvi_ds, active_fire_mask, k=0.12, fwi_50=18.0)
 
     ndvi_clean = np.clip(ndvi_interp.fillna(0.2), 0.0, 1.0)
 
-    # Curing factor: higher when vegetation is dry (low NDVI).
-    curing_factor = np.clip((0.85 - ndvi_clean) / 0.65, 0.0, 1.0)
+    # Fuel proxy: higher when vegetation is drier or sparse enough to burn.
+    fuel_proxy = np.clip((0.85 - ndvi_clean) / 0.65, 0.0, 1.0)
     logger.info(
-        f"Curing factor range: min={float(curing_factor.min()):.3f}, "
-        f"max={float(curing_factor.max()):.3f}, mean={float(curing_factor.mean()):.3f}"
+        f"FOPI fuel proxy range: min={float(fuel_proxy.min()):.3f}, "
+        f"max={float(fuel_proxy.max()):.3f}, mean={float(fuel_proxy.mean()):.3f}"
     )
 
-    # Scale hazard so moderate FWI with high curing maps effectively.
-    hazard_score = fwi * (0.4 + 0.8 * curing_factor)
-
-    fire_mask_values = active_fire_mask.values.astype(float)
-    smoothed_fire_risk = gaussian_filter(fire_mask_values, sigma=5.0) # sigma: pixel fois ny dimensiuon radius, 5km = 1, 15km = 3, ...
-    max_val = smoothed_fire_risk.max()
-    if max_val > 0:
-        smoothed_fire_risk = smoothed_fire_risk / max_val
-
-    fire_boost_da = xr.DataArray(
-        smoothed_fire_risk, coords=active_fire_mask.coords, dims=active_fire_mask.dims,
+    fire_climatology = load_monthly_fire_climatology_factor(fwi)
+    logger.info(
+        f"FOPI fire climatology range: min={float(fire_climatology.min()):.3f}, "
+        f"max={float(fire_climatology.max()):.3f}, mean={float(fire_climatology.mean()):.3f}"
     )
 
-    # Optional active-fire boost (additive, not part of FFMC/DMC/DC).
-    boosted_hazard = hazard_score + (fire_boost_da * 6.0) # dia ity koa soloina 6.0 au lieu de 15.0
-
-    # Logistic transformation - see module docstring for the "not a
-    # calibrated probability" caveat.
-    fopi = 1.0 / (1.0 + np.exp(-k * (boosted_hazard - fwi_50)))
+    fopi_raw = (
+        FOPI_A
+        + FOPI_B1_FWI * fwi
+        + FOPI_B2_FUEL * fuel_proxy
+        + FOPI_B3_FIRE_CLIM * fire_climatology
+    )
+    fopi = _logistic(fopi_raw).clip(0.0, 1.0)
+    fopi.attrs.update(
+        {
+            "long_name": "Fire Occurrence Probability Index",
+            "formula": "logistic(a + b1 * FWI + b2 * fuel_proxy + b3 * fire_climatology)",
+            "a": FOPI_A,
+            "b1_fwi": FOPI_B1_FWI,
+            "b2_fuel_proxy": FOPI_B2_FUEL,
+            "b3_fire_climatology": FOPI_B3_FIRE_CLIM,
+            "fuel_proxy": "clip((0.85 - NDVI) / 0.65, 0, 1)",
+            "fire_climatology": "Monthly MODIS active-fire climatology normalized by 95th percentile",
+        }
+    )
     return fopi
 
 
@@ -178,12 +242,7 @@ def compute_fire_indices(force_recompute=False):
         lat=lat, ffmc0=ffmc0, dmc0=dmc0, dc0=dc0,
     )
 
-    active_fire_mask = get_active_fire_mask(noon_tas)
-
-    fopi_ds = calculate_fopi_improved(
-        fwi=fwi, ndvi_ds=ndvi_ds, active_fire_mask=active_fire_mask,
-        k=0.12, fwi_50=18.0,
-    )
+    fopi_ds = calculate_fopi_improved(fwi=fwi, ndvi_ds=ndvi_ds)
 
     fwi.attrs["fire_code_init_source"] = init_source
     fopi_ds.attrs["fire_code_init_source"] = init_source
