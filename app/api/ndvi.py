@@ -31,7 +31,7 @@ NDVI_CACHE = {"last_fetched": 0, "dataset": None}
 PLOT_CACHE = {}
 GEOMETRY_MASK_CACHE = None
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 CACHE_TTL = 86400 * 15
 
 MADAGASCAR_BBOX = [43.1, -25.7, 50.8, -11.9] 
