@@ -392,10 +392,15 @@ html, body {
   cursor: pointer;
 }
 
-.leaflet-image-layer {
+.leaflet-image-layer,
+.amp-raster-overlay {
+  backface-visibility: hidden;
   image-rendering: pixelated !important;
   image-rendering: crisp-edges !important;
+  image-rendering: -webkit-optimize-contrast !important;
   -ms-interpolation-mode: nearest-neighbor !important;
+  transform-origin: center center;
+  will-change: transform;
 }
 
 /* Floating Ombrothermic Chart Panel */

@@ -48,6 +48,14 @@ FOPI_A = -3.5
 FOPI_B1_FWI = 0.08
 FOPI_B2_FUEL = 2.5
 FOPI_B3_FIRE_CLIM = 2.0
+RASTER_EXPORT_DPI = 200
+RASTER_EXPORT_MAX_PIXELS = 2200
+
+
+def raster_figure_size(data_vals, max_pixels=RASTER_EXPORT_MAX_PIXELS, dpi=RASTER_EXPORT_DPI):
+    height, width = np.squeeze(data_vals).shape[-2:]
+    scale = min(max_pixels / max(height, width), 6.0)
+    return (width * scale / dpi, height * scale / dpi)
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +334,7 @@ def get_fire_index_plot():
 
         cmap.set_bad(color=(1, 1, 1, 0))
 
-        fig = plt.figure(figsize=(6, 6), frameon=False)
+        fig = plt.figure(figsize=raster_figure_size(data_vals), frameon=False)
         ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])
         ax.set_axis_off()
         fig.add_axes(ax)
@@ -340,11 +348,11 @@ def get_fire_index_plot():
             norm=norm,
             origin="upper",
             aspect="auto",
-            interpolation="bilinear",
+            interpolation="nearest",
         )
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=150, transparent=True)
+        plt.savefig(buf, format="png", dpi=RASTER_EXPORT_DPI, transparent=True)
         buf.seek(0)
         plt.close(fig)
 

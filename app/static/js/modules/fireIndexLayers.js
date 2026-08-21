@@ -47,7 +47,8 @@ export function updateRightFireIndexLayer(mapRight, indexType = 'fwi', dayNum = 
       rightFireIndexOverlay = L.imageOverlay(data.imageUrl, data.bounds, {
         opacity: 0.8,
         interactive: false,
-        zIndex: 400
+        zIndex: 400,
+        className: 'amp-raster-overlay'
       }).addTo(mapRight);
 
       if (data.legend && Array.isArray(data.legend) && data.legend.length > 0) {
