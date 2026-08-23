@@ -19,7 +19,7 @@ import xclim
 from flask import Blueprint, jsonify, request
 
 from app.core.dataset_cache import get_cached_indices, set_cached_indices
-from app.core.fire_state_io import load_fire_initialization
+from app.core.fire_state_io import LATEST_STATE_PATH, load_fire_initialization
 
 matplotlib.use("Agg")
 
@@ -214,16 +214,63 @@ def calculate_fopi_improved(fwi, ndvi_ds, active_fire_mask=None):
 # Core forecast computation
 # ---------------------------------------------------------------------------
 
+def _dataset_init_time_key(ds):
+    if ds is None or "init_time" not in ds.coords:
+        return None
+    try:
+        return str(np.atleast_1d(ds["init_time"].values)[0])
+    except Exception:
+        logger.warning("Could not read AIFS init_time for cache validation.", exc_info=True)
+        return None
+
+
+def _path_mtime_key(path):
+    try:
+        return os.path.getmtime(path) if path and os.path.exists(path) else None
+    except OSError:
+        logger.warning(f"Could not stat cache dependency '{path}'.", exc_info=True)
+        return None
+
+
+def _dataset_source_key(ds):
+    if ds is None:
+        return None
+    return getattr(ds, "encoding", {}).get("source")
+
+
+def _fire_indices_cache_signature(aifs_ds, ndvi_ds):
+    ndvi_source = _dataset_source_key(ndvi_ds)
+    return {
+        "aifs_init_time": _dataset_init_time_key(aifs_ds),
+        "aifs_source": _dataset_source_key(aifs_ds),
+        "fire_state_mtime": _path_mtime_key(LATEST_STATE_PATH),
+        "ndvi_source": ndvi_source,
+        "ndvi_mtime": _path_mtime_key(ndvi_source),
+    }
+
 def compute_fire_indices(force_recompute=False):
 
     cache = get_cached_indices()
-    if not force_recompute and cache['fwi'] is not None and cache['fopi'] is not None:
-        return cache['fwi'], cache['fopi'], cache['aifs'], cache['ndvi']
-
-    logger.info(f"Computing FWI and FOPI (daily, day 0..{FORECAST_HORIZON_DAYS - 1}) ....")
 
     aifs_ds = get_aifs_dataset()
     ndvi_ds = get_ndvi_dataset()
+    signature = _fire_indices_cache_signature(aifs_ds, ndvi_ds)
+
+    if (
+        not force_recompute
+        and cache['fwi'] is not None
+        and cache['fopi'] is not None
+        and cache.get("signature") == signature
+    ):
+        return cache['fwi'], cache['fopi'], cache['aifs'], cache['ndvi']
+
+    if not force_recompute and cache['fwi'] is not None and cache['fopi'] is not None:
+        logger.info(
+            "FWI/FOPI cache dependency changed; recomputing "
+            f"(old={cache.get('signature')}, new={signature})."
+        )
+
+    logger.info(f"Computing FWI and FOPI (daily, day 0..{FORECAST_HORIZON_DAYS - 1}) ....")
 
     # Local-noon-sampled tas/hurs/wind + 24h-accumulated pr - see
     # app.api.aifs_frcst.get_daily_noon_aifs_dataset() for the CFFDRS
@@ -255,8 +302,9 @@ def compute_fire_indices(force_recompute=False):
     fwi.attrs["fire_code_init_source"] = init_source
     fopi_ds.attrs["fire_code_init_source"] = init_source
 
-    set_cached_indices(fwi, fopi_ds, aifs_ds, ndvi_ds)
+    set_cached_indices(fwi, fopi_ds, aifs_ds, ndvi_ds, signature=signature)
     FIELD_CACHE.clear()
+    PLOT_CACHE.clear()
 
     return fwi, fopi_ds, aifs_ds, ndvi_ds
 
@@ -264,10 +312,11 @@ def compute_fire_indices(force_recompute=False):
 def get_fire_index_field(index_type, day_num):
 
     cache_key = f"{index_type}_day{day_num}"
+    fwi_ds, fopi_ds, _, _ = compute_fire_indices()
+
     if cache_key in FIELD_CACHE:
         return FIELD_CACHE[cache_key]
 
-    fwi_ds, fopi_ds, _, _ = compute_fire_indices()
     target_ds = fwi_ds if index_type == "fwi" else fopi_ds
     time_dim = "time" if "time" in target_ds.dims else "lead_time"
     field = target_ds.isel({time_dim: day_num})
@@ -282,11 +331,12 @@ def get_fire_index_plot():
     day = int(request.args.get("day", 0))
 
     cache_key = f"{index_type}_day_{day}"
-    if cache_key in PLOT_CACHE:
-        return jsonify(PLOT_CACHE[cache_key])
 
     try:
         field = get_fire_index_field(index_type, day)
+
+        if cache_key in PLOT_CACHE:
+            return jsonify(PLOT_CACHE[cache_key])
 
         lats = field.latitude.values
         lons = field.longitude.values

@@ -35,7 +35,8 @@ GEOMETRY_MASK_CACHE = None
 DEBUG_MODE = os.environ.get("FLASK_DEBUG", "false").strip().lower() in ("1", "true", "yes")
 CACHE_TTL = 21600  # 06 hours aloh
 
-FORECAST_DIR = os.path.join("data", "forecast")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+FORECAST_DIR = os.path.join(PROJECT_ROOT, "data", "forecast")
 LOCAL_ZARR_PATH = os.path.join(FORECAST_DIR, "aifs_raw_latest.zarr")
 
 MADAGASCAR_BBOX = {
@@ -582,11 +583,12 @@ def get_daily_aifs_dataset():
 
 def get_daily_weather_field(var_name, day_num):
 
-    cache_key = f"{var_name}_day{day_num}"
+    daily_ds = get_daily_aifs_dataset()
+    cache_key = f"{DAILY_CACHE['key']}:{var_name}_day{day_num}"
+
     if cache_key in FIELD_CACHE:
         return FIELD_CACHE[cache_key]
 
-    daily_ds = get_daily_aifs_dataset()
     if var_name not in daily_ds:
         raise KeyError(f"'{var_name}' not found in daily AIFS dataset.")
 
@@ -636,12 +638,12 @@ def get_forecast_plot():
 
     cmap_name, unit, title_name = display_config.get(var_name, ("coolwarm", "", var_name))
 
-    cache_key = f"{var_name}_day{day_num}"
-    if cache_key in PLOT_CACHE:
-        return jsonify(PLOT_CACHE[cache_key])
-
     try:
         field = get_daily_weather_field(var_name, day_num)
+        cache_key = f"{DAILY_CACHE['key']}:{var_name}_day{day_num}"
+
+        if cache_key in PLOT_CACHE:
+            return jsonify(PLOT_CACHE[cache_key])
 
         lats = field.latitude.values
         lons = field.longitude.values
