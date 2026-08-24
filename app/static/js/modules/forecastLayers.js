@@ -1,5 +1,6 @@
 // static/js/modules/forecastLayers.js
 import { getMapLeft, getMapRight, showMapLoading, hideMapLoading } from './mapManager.js';
+import { formatLegendTitle, formatLegendUnit } from './legendUtils.js';
 
 let leftForecastOverlay = null;
 let leftForecastLegendControl = null;
@@ -155,12 +156,14 @@ function createForecastLegendControl(data, position) {
     const firstVal = data.legend[0].value;
     const midVal = data.legend[Math.floor(data.legend.length / 2)].value;
     const lastVal = data.legend[data.legend.length - 1].value;
+    const displayTitle = formatLegendTitle(data, 'Prévision');
+    const displayUnit = formatLegendUnit(data.unit);
 
     div.innerHTML = `
-      <div style="background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); padding: 8px 12px; border-radius: 6px; color: #f8fafc; font-family: sans-serif; font-size: 11px; border: 1px solid rgba(255,255,255,0.1); min-width: 160px;">
-        <div style="font-weight: 600; margin-bottom: 4px; color: #38bdf8;">${data.title} (${data.unit})</div>
-        <div style="height: 10px; width: 100%; background: ${gradientCss}; border-radius: 2px; margin-bottom: 4px; border: 1px solid rgba(255,255,255,0.2);"></div>
-        <div style="display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8;">
+      <div class="map-legend-panel">
+        <div class="map-legend-title">${displayTitle}${displayUnit}</div>
+        <div class="map-legend-gradient" style="background: ${gradientCss};"></div>
+        <div class="map-legend-scale">
           <span>${firstVal}</span>
           <span>${midVal}</span>
           <span>${lastVal}</span>

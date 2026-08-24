@@ -1,4 +1,5 @@
 // static/js/modules/climateLayers.js
+import { formatLegendTitle, formatLegendUnit } from './legendUtils.js';
 
 let leftClimateOverlay = null;
 let leftLegendControl = null;
@@ -158,19 +159,21 @@ function createLegendControl(data, fixedScale, position) {
     const div = L.DomUtil.create('div', 'climate-legend-box');
     const colors = data.legend.map(item => item.color).join(', ');
     const gradientCss = `linear-gradient(to right, ${colors})`;
+    const displayTitle = formatLegendTitle(data, 'Climatologie');
+    const displayUnit = formatLegendUnit(data.unit);
 
     div.innerHTML = `
-      <div style="background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); padding: 8px 12px; border-radius: 6px; color: #f8fafc; font-family: sans-serif; font-size: 11px; border: 1px solid rgba(255,255,255,0.1); min-width: 160px;">
-        <div style="font-weight: 600; margin-bottom: 4px; color: #38bdf8;">${data.title} (${data.unit})</div>
-        <div style="height: 10px; width: 100%; background: ${gradientCss}; border-radius: 2px; margin-bottom: 4px; border: 1px solid rgba(255,255,255,0.2);"></div>
-        <div style="display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; margin-bottom: 6px;">
+      <div class="map-legend-panel">
+        <div class="map-legend-title">${displayTitle}${displayUnit}</div>
+        <div class="map-legend-gradient" style="background: ${gradientCss};"></div>
+        <div class="map-legend-scale map-legend-scale-spaced">
           <span>${data.legend[0].value}</span>
           <span>${data.legend[Math.floor(data.legend.length / 2)].value}</span>
           <span>${data.legend[data.legend.length - 1].value}</span>
         </div>
-        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: #cbd5e1; cursor: pointer; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 4px;">
+        <label class="map-legend-toggle">
           <input type="checkbox" class="map-legend-fixed-toggle" ${fixedScale ? 'checked' : ''} style="cursor: pointer;">
-          <span>Fix annual min/max</span>
+          <span>Fixer le min/max annuel</span>
         </label>
       </div>
     `;
