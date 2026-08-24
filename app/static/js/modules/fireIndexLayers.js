@@ -1,5 +1,6 @@
 // static/js/modules/fireIndexLayers.js
 import { getMapRight, showMapLoading, hideMapLoading } from './mapManager.js';
+import { formatLegendTitle, formatLegendUnit } from './legendUtils.js';
 
 let rightFireIndexOverlay = null;
 let rightFireIndexLegendControl = null;
@@ -93,19 +94,19 @@ function createFireIndexLegendControl(data, position = 'bottomright') {
   legendControl.onAdd = function () {
     const div = L.DomUtil.create('div', 'fire-index-legend-box');
 
-    const displayTitle = data.title || 'Indices des risques du feux';
-    const displayUnit = data.unit ? ` (${data.unit})` : '';
+    const displayTitle = formatLegendTitle(data, 'Indices de risque de feu');
+    const displayUnit = formatLegendUnit(data.unit);
 
     const rowsHtml = data.legend.map((item) => `
-      <div style="display: flex; align-items: center; gap: 6px; margin-top: 3px;">
-        <span style="width: 14px; height: 14px; flex-shrink: 0; border-radius: 3px; background: ${item.color}; border: 1px solid rgba(255,255,255,0.25);"></span>
-        <span style="font-size: 10px; color: #e2e8f0;">${item.value}</span>
+      <div class="map-legend-row">
+        <span class="map-legend-swatch" style="background: ${item.color};"></span>
+        <span>${item.value}</span>
       </div>
     `).join('');
 
     div.innerHTML = `
-      <div style="background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); padding: 8px 12px; border-radius: 6px; color: #f8fafc; font-family: sans-serif; font-size: 11px; border: 1px solid rgba(255,255,255,0.1); min-width: 160px;">
-        <div style="font-weight: 600; margin-bottom: 2px; color: #f43f5e;">${displayTitle}${displayUnit}</div>
+      <div class="map-legend-panel" style="--map-legend-accent: #f43f5e;">
+        <div class="map-legend-title">${displayTitle}${displayUnit}</div>
         ${rowsHtml}
       </div>
     `;

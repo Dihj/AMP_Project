@@ -19,7 +19,7 @@ import xclim
 from flask import Blueprint, jsonify, request
 
 from app.core.dataset_cache import get_cached_indices, set_cached_indices
-from app.core.fire_state_io import load_fire_initialization
+from app.core.fire_state_io import load_fire_initialization, load_operational_state
 
 matplotlib.use("Agg")
 
@@ -214,11 +214,61 @@ def calculate_fopi_improved(fwi, ndvi_ds, active_fire_mask=None):
 # Core forecast computation
 # ---------------------------------------------------------------------------
 
+def _time_signature(obj):
+    """Stable signature for the forecast days represented by an xarray object."""
+    if obj is None or "time" not in obj.coords:
+        return None
+    return tuple(pd.to_datetime(obj.time.values).strftime("%Y-%m-%d"))
+
+
+def _current_fire_state_signature():
+    state = load_operational_state()
+    if state is None:
+        return "no_state"
+    return f"{state.get('valid_date')}:{state.get('source')}"
+
+
+def _cached_fire_indices_are_current(cache, expected_time_signature, fire_state_signature):
+    fwi = cache.get("fwi")
+    fopi = cache.get("fopi")
+    if fwi is None or fopi is None:
+        return False
+
+    return (
+        _time_signature(fwi) == expected_time_signature
+        and _time_signature(fopi) == expected_time_signature
+        and fwi.attrs.get("fire_state_signature") == fire_state_signature
+        and fopi.attrs.get("fire_state_signature") == fire_state_signature
+    )
+
+
 def compute_fire_indices(force_recompute=False):
 
+    # Build the canonical forecast day window before consulting the cache.
+    # On long-lived AWS workers this prevents yesterday's FWI/FOPI arrays from
+    # being reused after the AIFS forecast Zarr has advanced to a new day.
+    noon_ds = get_daily_noon_aifs_dataset()
+    expected_time_signature = _time_signature(noon_ds["temp_2m_celsius"])
+    fire_state_signature = _current_fire_state_signature()
+
     cache = get_cached_indices()
-    if not force_recompute and cache['fwi'] is not None and cache['fopi'] is not None:
+    if (
+        not force_recompute
+        and _cached_fire_indices_are_current(
+            cache, expected_time_signature, fire_state_signature
+        )
+    ):
         return cache['fwi'], cache['fopi'], cache['aifs'], cache['ndvi']
+
+    if cache.get("fwi") is not None or cache.get("fopi") is not None:
+        logger.info(
+            "Discarding stale FWI/FOPI cache "
+            f"(cached_days={_time_signature(cache.get('fwi'))}, "
+            f"expected_days={expected_time_signature}, "
+            f"fire_state={fire_state_signature})."
+        )
+        FIELD_CACHE.clear()
+        PLOT_CACHE.clear()
 
     logger.info(f"Computing FWI and FOPI (daily, day 0..{FORECAST_HORIZON_DAYS - 1}) ....")
 
@@ -228,7 +278,6 @@ def compute_fire_indices(force_recompute=False):
     # Local-noon-sampled tas/hurs/wind + 24h-accumulated pr - see
     # app.api.aifs_frcst.get_daily_noon_aifs_dataset() for the CFFDRS
     # noon-sampling rationale.
-    noon_ds = get_daily_noon_aifs_dataset()
     noon_tas = noon_ds["temp_2m_celsius"]
     noon_wind = noon_ds["wind_speed_10m"]
     noon_hurs = noon_ds["relative_humidity_2m"]
@@ -254,22 +303,27 @@ def compute_fire_indices(force_recompute=False):
 
     fwi.attrs["fire_code_init_source"] = init_source
     fopi_ds.attrs["fire_code_init_source"] = init_source
+    fwi.attrs["fire_state_signature"] = fire_state_signature
+    fopi_ds.attrs["fire_state_signature"] = fire_state_signature
 
     set_cached_indices(fwi, fopi_ds, aifs_ds, ndvi_ds)
     FIELD_CACHE.clear()
+    PLOT_CACHE.clear()
 
     return fwi, fopi_ds, aifs_ds, ndvi_ds
 
 
 def get_fire_index_field(index_type, day_num):
 
-    cache_key = f"{index_type}_day{day_num}"
-    if cache_key in FIELD_CACHE:
-        return FIELD_CACHE[cache_key]
-
     fwi_ds, fopi_ds, _, _ = compute_fire_indices()
     target_ds = fwi_ds if index_type == "fwi" else fopi_ds
     time_dim = "time" if "time" in target_ds.dims else "lead_time"
+
+    forecast_signature = _time_signature(target_ds)
+    cache_key = f"{forecast_signature}:{index_type}_day{day_num}"
+    if cache_key in FIELD_CACHE:
+        return FIELD_CACHE[cache_key]
+
     field = target_ds.isel({time_dim: day_num})
 
     FIELD_CACHE[cache_key] = field
@@ -281,12 +335,14 @@ def get_fire_index_plot():
     index_type = request.args.get("index", "fwi").lower()
     day = int(request.args.get("day", 0))
 
-    cache_key = f"{index_type}_day_{day}"
-    if cache_key in PLOT_CACHE:
-        return jsonify(PLOT_CACHE[cache_key])
-
     try:
         field = get_fire_index_field(index_type, day)
+        real_date = pd.Timestamp(field.time.values).strftime("%Y-%m-%d")
+        fire_state_signature = getattr(field, "attrs", {}).get("fire_state_signature", "unknown")
+
+        cache_key = f"{real_date}:{fire_state_signature}:{index_type}_day_{day}"
+        if cache_key in PLOT_CACHE:
+            return jsonify(PLOT_CACHE[cache_key])
 
         lats = field.latitude.values
         lons = field.longitude.values
@@ -370,8 +426,6 @@ def get_fire_index_plot():
             legend_ticks.append(
                 {"value": labels[i], "color": mcolors.to_hex(rgba)}
             )
-
-        real_date = pd.Timestamp(field.time.values).strftime("%Y-%m-%d")
 
         response_payload = {
             "status": "success",

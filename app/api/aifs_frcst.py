@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 aifs_bp = Blueprint("aifs_forecast", __name__)
 
 # Memory cache
-AIFS_CACHE = {"last_fetched": 0, "dataset": None}
+AIFS_CACHE = {"last_fetched": 0, "dataset": None, "local_zarr_mtime": None}
 PLOT_CACHE = {}
 FIELD_CACHE = {}
 DAILY_CACHE = {"key": None, "dataset": None}
@@ -266,6 +266,7 @@ def download_and_save_aifs():
     t_save = time.time()
     os.makedirs(FORECAST_DIR, exist_ok=True)
     loaded_ds.to_zarr(LOCAL_ZARR_PATH, mode="w")
+    os.utime(LOCAL_ZARR_PATH, None)
     logger.info(f"[Timing] Save to zarr: {time.time() - t_save:.1f}s")
     logger.info(f"Successfully saved shapefile-masked, 5km forecast to '{LOCAL_ZARR_PATH}'")
 
@@ -278,6 +279,7 @@ def download_and_save_aifs():
 
     AIFS_CACHE["dataset"] = loaded_ds
     AIFS_CACHE["last_fetched"] = time.time()
+    AIFS_CACHE["local_zarr_mtime"] = os.path.getmtime(LOCAL_ZARR_PATH)
 
     try:
         from app.scripts.update_fire_state import update_state_for_date
@@ -310,12 +312,15 @@ def download_and_save_aifs():
 
 def get_aifs_dataset():
     current_time = time.time()
+    file_exists = os.path.exists(LOCAL_ZARR_PATH)
+    file_mtime = os.path.getmtime(LOCAL_ZARR_PATH) if file_exists else None
 
     if AIFS_CACHE["dataset"] is not None:
-        if DEBUG_MODE or (current_time - AIFS_CACHE["last_fetched"] < CACHE_TTL):
+        cache_age = current_time - AIFS_CACHE["last_fetched"]
+        cached_mtime = AIFS_CACHE.get("local_zarr_mtime")
+        file_unchanged = file_mtime is None or cached_mtime == file_mtime
+        if (DEBUG_MODE or cache_age < CACHE_TTL) and file_unchanged:
             return AIFS_CACHE["dataset"]
-
-    file_exists = os.path.exists(LOCAL_ZARR_PATH)
 
     if file_exists:
         file_age = current_time - os.path.getmtime(LOCAL_ZARR_PATH)
@@ -325,6 +330,7 @@ def get_aifs_dataset():
             ds = xr.open_zarr(LOCAL_ZARR_PATH)
             AIFS_CACHE["dataset"] = ds
             AIFS_CACHE["last_fetched"] = current_time
+            AIFS_CACHE["local_zarr_mtime"] = file_mtime
             return ds
 
     logger.info("Triggering fresh AIFS forecast download...")
