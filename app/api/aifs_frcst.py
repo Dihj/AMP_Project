@@ -162,7 +162,7 @@ def calculate_relative_humidity(t2m_c, d2m_c):
     return np.clip(rh, 0.0, 100.0)
 
 
-def download_and_save_aifs():
+def download_and_save_aifs(precompute_fire_indices=False):
 
     t_start = time.time()
     logger.info("Connecting to s3://dynamical-ecmwf-aifs-single via Icechunk...")
@@ -281,29 +281,48 @@ def download_and_save_aifs():
     AIFS_CACHE["last_fetched"] = time.time()
     AIFS_CACHE["local_zarr_mtime"] = os.path.getmtime(LOCAL_ZARR_PATH)
 
-    try:
-        from app.scripts.update_fire_state import update_state_for_date
+    if precompute_fire_indices:
+        try:
+            from app.scripts.update_fire_state import update_state_for_date
 
-        state_path = update_state_for_date(source="aifs_shortlead")
-        if state_path is not None:
-            logger.info(f"Operational fire state refreshed after AIFS download: {state_path}")
-    except Exception:
-        logger.error(
-            "Fresh AIFS forecast was saved, but operational fire-state "
-            "refresh failed. FWI/FOPI will fall back according to "
-            "fire_state_io.load_fire_initialization().",
-            exc_info=True,
+            state_path = update_state_for_date(source="aifs_shortlead")
+            if state_path is not None:
+                logger.info(f"Operational fire state refreshed after AIFS download: {state_path}")
+        except Exception:
+            logger.error(
+                "Fresh AIFS forecast was saved, but operational fire-state "
+                "refresh failed. FWI/FOPI will fall back according to "
+                "fire_state_io.load_fire_initialization().",
+                exc_info=True,
+            )
+
+        try:
+            t_warm = time.time()
+            get_daily_aifs_dataset()
+            get_daily_noon_aifs_dataset()
+            from app.api.fire_indices import compute_fire_indices
+            compute_fire_indices(force_recompute=True, persist=True)
+            logger.info(
+                f"[Timing] Precompute daily dataset + persisted FWI/FOPI: "
+                f"{time.time() - t_warm:.1f}s"
+            )
+        except Exception as e:
+            logger.error(f"Could not precompute and persist FWI/FOPI after download: {e}", exc_info=True)
+            raise
+    else:
+        logger.info(
+            "Skipping operational fire-state refresh and FWI/FOPI precompute "
+            "in this process. The scheduled operational refresh is responsible "
+            "for writing the fire-index NetCDF product."
         )
 
-    try:
-        t_warm = time.time()
-        get_daily_aifs_dataset()
-        get_daily_noon_aifs_dataset()
-        from app.api.fire_indices import compute_fire_indices
-        compute_fire_indices(force_recompute=True)
-        logger.info(f"[Timing] Pre-warm daily dataset + FWI/FOPI: {time.time() - t_warm:.1f}s")
-    except Exception as e:
-        logger.warning(f"Could not pre-warm FWI/FOPI after download (will compute lazily on first request): {e}")
+        try:
+            t_warm = time.time()
+            get_daily_aifs_dataset()
+            get_daily_noon_aifs_dataset()
+            logger.info(f"[Timing] Pre-warm daily AIFS datasets: {time.time() - t_warm:.1f}s")
+        except Exception as e:
+            logger.warning(f"Could not pre-warm daily AIFS datasets: {e}")
 
     logger.info(f"[Timing] TOTAL download_and_save_aifs(): {time.time() - t_start:.1f}s")
 
@@ -334,7 +353,7 @@ def get_aifs_dataset():
             return ds
 
     logger.info("Triggering fresh AIFS forecast download...")
-    ds = download_and_save_aifs()
+    ds = download_and_save_aifs(precompute_fire_indices=False)
     AIFS_CACHE["dataset"] = ds
     AIFS_CACHE["last_fetched"] = current_time
     return ds
