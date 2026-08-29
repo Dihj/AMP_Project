@@ -25,7 +25,7 @@ export function updateRightFireIndexLayer(mapRight, indexType = 'fwi', dayNum = 
   }
   fireIndexFetchController = new AbortController();
 
-  showMapLoading(mapRight, `Calculating ${indexType.toUpperCase()} (Day ${dayNum})...`, '#f43f5e');
+  showMapLoading(mapRight, `Loading ${indexType.toUpperCase()} (Day ${dayNum})...`, '#f43f5e');
 
   const url = `/api/fire-indices/plot?index=${encodeURIComponent(indexType)}&day=${dayNum}`;
 

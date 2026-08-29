@@ -2,6 +2,7 @@
 import base64
 import io
 import logging
+import numbers
 import os
 
 os.environ.setdefault("NUMBA_CACHE_DIR", "/tmp/numba-cache")
@@ -35,12 +36,15 @@ logger = logging.getLogger(__name__)
 
 PLOT_CACHE = {}
 FIELD_CACHE = {}
+PRECOMPUTED_FIRE_CACHE = {"mtime": None, "dataset": None}
 
 FIRMS_URL = "https://firms.modaps.eosdis.nasa.gov/data/active_fire/modis-c6.1/csv/MODIS_C6_1_Southern_Africa_24h.csv"
 MADAGASCAR_FIRMS_BOUNDS = {
     "lat_min": -25.7, "lat_max": -11.9, "lon_min": 43.1, "lon_max": 50.8,
 }
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+FORECAST_DIR = os.path.join(BASE_DIR, "data", "forecast")
+FIRE_INDEX_PATH = os.path.join(FORECAST_DIR, "fwi_fopi_forecast_latest.nc")
 FIRE_CLIM_PATH = os.path.join(BASE_DIR, "data", "netcdf", "climatology", "FIRE_climV2.nc")
 FIRE_CLIM_FALLBACK_PATH = os.path.join(BASE_DIR, "data", "netcdf", "climatology", "FIRE_clim.nc")
 
@@ -242,7 +246,153 @@ def _cached_fire_indices_are_current(cache, expected_time_signature, fire_state_
     )
 
 
-def compute_fire_indices(force_recompute=False):
+def _dataset_time_signature(ds):
+    if ds is None or "time" not in ds.coords:
+        return None
+    return tuple(pd.to_datetime(ds.time.values).strftime("%Y-%m-%d"))
+
+
+def _clear_fire_index_caches():
+    FIELD_CACHE.clear()
+    PLOT_CACHE.clear()
+
+
+_NETCDF_ATTR_SCALAR_TYPES = (
+    str,
+    bytes,
+    numbers.Number,
+    np.integer,
+    np.floating,
+    np.bool_,
+)
+
+
+def _is_netcdf_attr_value(value):
+    if isinstance(value, _NETCDF_ATTR_SCALAR_TYPES):
+        return True
+    if isinstance(value, np.ndarray):
+        return value.dtype.kind in ("b", "i", "u", "f", "S", "U")
+    if isinstance(value, (list, tuple)):
+        return all(isinstance(item, _NETCDF_ATTR_SCALAR_TYPES) for item in value)
+    return False
+
+
+def _sanitize_attrs_for_netcdf(ds):
+    ds = ds.copy()
+    dropped = []
+
+    clean_attrs = {}
+    for key, value in ds.attrs.items():
+        if _is_netcdf_attr_value(value):
+            clean_attrs[key] = value
+        else:
+            dropped.append(f"(dataset).{key}")
+    ds.attrs = clean_attrs
+
+    for name in list(ds.variables):
+        clean_attrs = {}
+        for key, value in ds[name].attrs.items():
+            if _is_netcdf_attr_value(value):
+                clean_attrs[key] = value
+            else:
+                dropped.append(f"{name}.{key}")
+        ds[name].attrs = clean_attrs
+
+    if dropped:
+        logger.warning(
+            "Dropped non-NetCDF-serializable attrs before saving precomputed "
+            f"FWI/FOPI dataset: {dropped}"
+        )
+
+    return ds
+
+
+def _load_precomputed_fire_index_dataset():
+    if not os.path.exists(FIRE_INDEX_PATH):
+        raise FileNotFoundError(
+            f"Precomputed fire-index dataset not found at '{FIRE_INDEX_PATH}'. "
+            "Run `python -m app.scripts.update_operational_data` to create it."
+        )
+
+    file_mtime = os.path.getmtime(FIRE_INDEX_PATH)
+    if (
+        PRECOMPUTED_FIRE_CACHE["dataset"] is not None
+        and PRECOMPUTED_FIRE_CACHE["mtime"] == file_mtime
+    ):
+        return PRECOMPUTED_FIRE_CACHE["dataset"]
+
+    with xr.open_dataset(FIRE_INDEX_PATH) as ds:
+        loaded = ds.load()
+
+    missing = [name for name in ("fwi", "fopi") if name not in loaded]
+    if missing:
+        raise KeyError(
+            f"Precomputed fire-index dataset is missing variable(s): {', '.join(missing)}"
+        )
+
+    PRECOMPUTED_FIRE_CACHE["dataset"] = loaded
+    PRECOMPUTED_FIRE_CACHE["mtime"] = file_mtime
+    _clear_fire_index_caches()
+    logger.info(f"Loaded precomputed fire indices from '{FIRE_INDEX_PATH}'")
+    return loaded
+
+
+def load_precomputed_fire_indices():
+    ds = _load_precomputed_fire_index_dataset()
+    return ds["fwi"], ds["fopi"]
+
+
+def get_fire_index_dates():
+    ds = _load_precomputed_fire_index_dataset()
+    if "time" not in ds.coords:
+        return []
+    return pd.to_datetime(ds.time.values).strftime("%Y-%m-%d").tolist()
+
+
+def save_precomputed_fire_indices(fwi, fopi, aifs_ds=None):
+    os.makedirs(FORECAST_DIR, exist_ok=True)
+
+    fwi_out = fwi.astype("float32").load()
+    fopi_out = fopi.astype("float32").load()
+    fwi_out.name = "fwi"
+    fopi_out.name = "fopi"
+
+    ds_out = xr.Dataset({"fwi": fwi_out, "fopi": fopi_out})
+    ds_out.attrs.update(
+        {
+            "title": "Latest precomputed AIFS FWI/FOPI forecast for Madagascar",
+            "created_at_utc": pd.Timestamp.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "forecast_time_signature": "|".join(_dataset_time_signature(ds_out) or []),
+            "fire_state_signature": str(fwi.attrs.get("fire_state_signature", "unknown")),
+            "fire_code_init_source": str(fwi.attrs.get("fire_code_init_source", "unknown")),
+            "source": "AIFS forecast + operational fire state + NDVI + fire climatology",
+        }
+    )
+    if aifs_ds is not None and "init_time" in aifs_ds.coords:
+        init_val = np.atleast_1d(aifs_ds["init_time"].values)[0]
+        ds_out.attrs["aifs_init_time"] = str(pd.Timestamp(init_val))
+
+    ds_out.encoding.clear()
+    for var in ds_out.variables:
+        ds_out[var].encoding.clear()
+
+    ds_out = _sanitize_attrs_for_netcdf(ds_out)
+
+    tmp_path = f"{FIRE_INDEX_PATH}.tmp"
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
+
+    ds_out.to_netcdf(tmp_path)
+    os.replace(tmp_path, FIRE_INDEX_PATH)
+
+    PRECOMPUTED_FIRE_CACHE["dataset"] = ds_out
+    PRECOMPUTED_FIRE_CACHE["mtime"] = os.path.getmtime(FIRE_INDEX_PATH)
+    _clear_fire_index_caches()
+    logger.info(f"Saved precomputed fire indices to '{FIRE_INDEX_PATH}'")
+    return FIRE_INDEX_PATH
+
+
+def compute_fire_indices(force_recompute=False, persist=False):
 
     # Build the canonical forecast day window before consulting the cache.
     # On long-lived AWS workers this prevents yesterday's FWI/FOPI arrays from
@@ -258,6 +408,8 @@ def compute_fire_indices(force_recompute=False):
             cache, expected_time_signature, fire_state_signature
         )
     ):
+        if persist and not os.path.exists(FIRE_INDEX_PATH):
+            save_precomputed_fire_indices(cache["fwi"], cache["fopi"], aifs_ds=cache.get("aifs"))
         return cache['fwi'], cache['fopi'], cache['aifs'], cache['ndvi']
 
     if cache.get("fwi") is not None or cache.get("fopi") is not None:
@@ -267,8 +419,7 @@ def compute_fire_indices(force_recompute=False):
             f"expected_days={expected_time_signature}, "
             f"fire_state={fire_state_signature})."
         )
-        FIELD_CACHE.clear()
-        PLOT_CACHE.clear()
+        _clear_fire_index_caches()
 
     logger.info(f"Computing FWI and FOPI (daily, day 0..{FORECAST_HORIZON_DAYS - 1}) ....")
 
@@ -307,15 +458,17 @@ def compute_fire_indices(force_recompute=False):
     fopi_ds.attrs["fire_state_signature"] = fire_state_signature
 
     set_cached_indices(fwi, fopi_ds, aifs_ds, ndvi_ds)
-    FIELD_CACHE.clear()
-    PLOT_CACHE.clear()
+    if persist:
+        save_precomputed_fire_indices(fwi, fopi_ds, aifs_ds=aifs_ds)
+    else:
+        _clear_fire_index_caches()
 
     return fwi, fopi_ds, aifs_ds, ndvi_ds
 
 
 def get_fire_index_field(index_type, day_num):
 
-    fwi_ds, fopi_ds, _, _ = compute_fire_indices()
+    fwi_ds, fopi_ds = load_precomputed_fire_indices()
     target_ds = fwi_ds if index_type == "fwi" else fopi_ds
     time_dim = "time" if "time" in target_ds.dims else "lead_time"
 
@@ -323,6 +476,12 @@ def get_fire_index_field(index_type, day_num):
     cache_key = f"{forecast_signature}:{index_type}_day{day_num}"
     if cache_key in FIELD_CACHE:
         return FIELD_CACHE[cache_key]
+
+    if day_num < 0 or day_num >= target_ds.sizes[time_dim]:
+        raise IndexError(
+            f"Requested {index_type.upper()} day {day_num}, but the precomputed "
+            f"dataset only has {target_ds.sizes[time_dim]} day(s)."
+        )
 
     field = target_ds.isel({time_dim: day_num})
 
@@ -442,9 +601,13 @@ def get_fire_index_plot():
         PLOT_CACHE[cache_key] = response_payload
         return jsonify(response_payload)
 
+    except FileNotFoundError as e:
+        logger.error(f"Precomputed fire-index product is unavailable: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 503
+
     except Exception as e:
         logger.error(
-            f"Failed to calculate or render {index_type} plot: {e}",
+            f"Failed to load or render {index_type} plot: {e}",
             exc_info=True,
         )
         return jsonify({"status": "error", "error": str(e)}), 500

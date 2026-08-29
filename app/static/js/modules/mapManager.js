@@ -25,10 +25,42 @@ const boundaryGeoData = {
 export function getMapLeft() { return mapLeft; }
 export function getMapRight() { return mapRight; }
 
-const TILE_URLS = {
-  dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-  light: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png' 
-};
+function getCartoBasemapKey() {
+  const meta = document.querySelector('meta[name="carto-basemap-key"]');
+  return meta ? meta.content.trim() : '';
+}
+
+function getTileConfig() {
+  const cartoKey = getCartoBasemapKey();
+  if (cartoKey) {
+    const suffix = `{r}.png?key=${encodeURIComponent(cartoKey)}`;
+    return {
+      dark: {
+        url: `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}${suffix}`,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        maxZoom: 20
+      },
+      light: {
+        url: `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}${suffix}`,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        maxZoom: 20
+      }
+    };
+  }
+
+  return {
+    dark: {
+      url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19
+    },
+    light: {
+      url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19
+    }
+  };
+}
 
 function isLightMode() {
   return document.documentElement.classList.contains('light') || 
@@ -39,24 +71,35 @@ function isLightMode() {
 export function updateMapTheme() {
   if (!leftTileLayer || !rightTileLayer) return;
 
-  const newTileUrl = isLightMode() ? TILE_URLS.light : TILE_URLS.dark;
+  const tileConfig = getTileConfig();
+  const nextTiles = isLightMode() ? tileConfig.light : tileConfig.dark;
 
-  leftTileLayer.setUrl(newTileUrl);
-  rightTileLayer.setUrl(newTileUrl);
+  leftTileLayer.setUrl(nextTiles.url);
+  rightTileLayer.setUrl(nextTiles.url);
+  leftTileLayer.options.attribution = nextTiles.attribution;
+  rightTileLayer.options.attribution = nextTiles.attribution;
 }
 
 export function initMapsOnce(initialOpacity = 0.75, fireVisible = true) {
   const initialCenter = [-18.7, 46.8];
   const initialZoom = 6;
-  const attrib = '&copy; <a href="https://carto.com/">CARTO</a>';
 
-  const currentTileUrl = isLightMode() ? TILE_URLS.light : TILE_URLS.dark;
+  const tileConfig = getTileConfig();
+  const currentTiles = isLightMode() ? tileConfig.light : tileConfig.dark;
 
   mapLeft = L.map('map-left', { zoomControl: false, attributionControl: false }).setView(initialCenter, initialZoom);
-  leftTileLayer = L.tileLayer(currentTileUrl, { maxZoom: 18, attribution: attrib, opacity: initialOpacity }).addTo(mapLeft);
+  leftTileLayer = L.tileLayer(currentTiles.url, {
+    maxZoom: currentTiles.maxZoom,
+    attribution: currentTiles.attribution,
+    opacity: initialOpacity
+  }).addTo(mapLeft);
 
   mapRight = L.map('map-right', { zoomControl: false, attributionControl: false }).setView(initialCenter, initialZoom);
-  rightTileLayer = L.tileLayer(currentTileUrl, { maxZoom: 18, attribution: attrib, opacity: initialOpacity }).addTo(mapRight);
+  rightTileLayer = L.tileLayer(currentTiles.url, {
+    maxZoom: currentTiles.maxZoom,
+    attribution: currentTiles.attribution,
+    opacity: initialOpacity
+  }).addTo(mapRight);
   L.control.zoom({ position: 'topright' }).addTo(mapRight);
 
   // 1. Pane for Climate Rasters (Sits BELOW admin lines)

@@ -11,7 +11,7 @@ import shapely.geometry as sg
 from shapely.geometry import Point, shape
 from flask import Blueprint, request, jsonify
 from app.api.aifs_frcst import get_daily_weather_field, FORECAST_HORIZON_DAYS
-from app.api.fire_indices import get_fire_index_field
+from app.api.fire_indices import get_fire_index_field, get_fire_index_dates
 
 forecast_bp = Blueprint('forecast', __name__)
 
@@ -236,6 +236,18 @@ def get_forecast_summary():
     if lat is not None: lat = float(lat)
     if lon is not None: lon = float(lon)
 
+    try:
+        forecast_dates = get_fire_index_dates()
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "error": (
+                "Precomputed FWI/FOPI forecast is not available. "
+                "Run the scheduled operational refresh before using the "
+                f"forecast summary. Details: {e}"
+            )
+        }), 503
+
     temperature = extract_series(
         lambda d: get_daily_weather_field("temp_2m_celsius", d), lat=lat, lon=lon, geometry_dict=geometry_dict,
     )
@@ -293,6 +305,8 @@ def get_forecast_summary():
         "wind": wind,
         "fwi": fwi_formatted,
         "fopi": fopi_formatted,
+        "dates": forecast_dates[:NUM_DAYS],
+        "time": forecast_dates[:NUM_DAYS],
         "fire_info": fire_info,
         "ndvi_trend": ndvi_trend,
         "raw_data": raw_data

@@ -23,7 +23,7 @@ logger = logging.getLogger("update_operational_data")
 
 def main():
     logger.info("Starting scheduled operational data refresh.")
-    download_and_save_aifs()
+    download_and_save_aifs(precompute_fire_indices=True)
 
     state = load_operational_state()
     state_date = None if state is None else state.get("valid_date")
