@@ -42,8 +42,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 2. DOM Handles
   const navBtns = document.querySelectorAll('.nav-btn');
-  const textDrawer = document.getElementById('text-drawer');
   const closeDrawerBtn = document.getElementById('close-drawer');
+  const drawerToggleBtn = document.getElementById('drawer-toggle-btn');
   const opacitySlider = document.getElementById('opacity-slider');
   const opacityVal = document.getElementById('opacity-val');
   const toggleFireBtn = document.getElementById('toggle-fire-btn');
@@ -114,7 +114,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // 5. Close Drawer Button Listener
   if (closeDrawerBtn) {
     closeDrawerBtn.addEventListener('click', () => {
-      if (textDrawer) textDrawer.classList.add('hidden');
+      state.drawerOpen = false;
+      renderUI();
+      triggerResize();
+    });
+  }
+
+  if (drawerToggleBtn) {
+    drawerToggleBtn.addEventListener('click', () => {
+      state.drawerOpen = true;
+      renderUI();
       triggerResize();
     });
   }
@@ -157,4 +166,3 @@ document.addEventListener('DOMContentLoaded', () => {
   initMapsOnce(state.currentOpacity, state.fireVisible);
   renderUI();
 });
-

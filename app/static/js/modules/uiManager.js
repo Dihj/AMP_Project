@@ -22,7 +22,8 @@ export const state = {
   selectedTime: navConfig['MON'].timeData[0],
   fireVisible: true,
   currentOpacity: 0.75,
-  fixedScale: false
+  fixedScale: false,
+  drawerOpen: true
 };
 
 /**
@@ -41,6 +42,7 @@ export function renderUI() {
   const sidebar = document.getElementById('sidebar');
   const iconBar = document.getElementById('icon-bar');
   const textDrawer = document.getElementById('text-drawer');
+  const drawerToggleBtn = document.getElementById('drawer-toggle-btn');
   const drawerTitle = document.getElementById('drawer-title');
   const appViewport = document.getElementById('app-viewport');
   const aboutViewport = document.getElementById('about-viewport');
@@ -64,6 +66,7 @@ export function renderUI() {
   if (state.currentNav === 'About') {
     if (sidebar) sidebar.classList.add('hidden');
     if (textDrawer) textDrawer.classList.add('hidden');
+    if (drawerToggleBtn) drawerToggleBtn.classList.add('hidden');
     if (appViewport) appViewport.classList.add('hidden');
     if (aboutViewport) aboutViewport.classList.remove('hidden');
 
@@ -76,7 +79,8 @@ export function renderUI() {
 
   // 2. Handle MON / FOR Tabs UI setup
   if (sidebar) sidebar.classList.remove('hidden');
-  if (textDrawer) textDrawer.classList.remove('hidden');
+  if (textDrawer) textDrawer.classList.toggle('hidden', !state.drawerOpen);
+  if (drawerToggleBtn) drawerToggleBtn.classList.toggle('hidden', state.drawerOpen);
   if (appViewport) appViewport.classList.remove('hidden');
   if (aboutViewport) aboutViewport.classList.add('hidden');
 
@@ -91,8 +95,7 @@ export function renderUI() {
     const activeLabel = state.currentNav === 'MON' 
       ? state.selectedIcon 
       : `${state.leftForecastIcon} / ${state.rightForecastIcon}`;
-    //drawerTitle.innerText = `${activeLabel} Contrôle des couches`;
-    drawerTitle.innerText = `Contrôle des couches`;
+    drawerTitle.innerText = `Contrôle des couches - ${activeLabel}`;
   }
 
   // Render Sidebar Icons dynamically depending on tab structure
@@ -108,7 +111,7 @@ export function renderUI() {
 
         iconBtn.addEventListener('click', () => {
           state.selectedIcon = item.name;
-          if (textDrawer) textDrawer.classList.remove('hidden');
+          state.drawerOpen = true;
           renderUI();
         });
 
@@ -130,7 +133,7 @@ export function renderUI() {
 
         iconBtn.addEventListener('click', () => {
           state.leftForecastIcon = item.name;
-          if (textDrawer) textDrawer.classList.remove('hidden');
+          state.drawerOpen = true;
           renderUI();
         });
 
@@ -156,7 +159,7 @@ export function renderUI() {
 
         iconBtn.addEventListener('click', () => {
           state.rightForecastIcon = item.name;
-          if (textDrawer) textDrawer.classList.remove('hidden');
+          state.drawerOpen = true;
           renderUI();
         });
 

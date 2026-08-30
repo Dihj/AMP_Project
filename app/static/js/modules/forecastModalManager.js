@@ -46,6 +46,9 @@ function getFOPILevel(val) {
  */
 function renderPlotlyGauges(fwiSeries, fopiSeries, selectedDay = 0) {
   const light = isLightMode();
+  const gaugeContainer = document.getElementById('fwi-gauge-container');
+  const gaugeWidth = Math.min(330, Math.max(260, Math.floor(gaugeContainer?.clientWidth || 330)));
+  const gaugeHeight = window.matchMedia('(max-width: 700px)').matches ? 185 : 200;
 
   // Dynamic Theme Palette
   const textColor = light ? '#0f172a' : '#ffffff';
@@ -118,8 +121,8 @@ function renderPlotlyGauges(fwiSeries, fopiSeries, selectedDay = 0) {
   }];
 
   const layout = {
-    width: 330,
-    height: 200,
+    width: gaugeWidth,
+    height: gaugeHeight,
     margin: { t: 50, r: 30, l: 30, b: 20 },
     paper_bgcolor: "transparent",
     plot_bgcolor: "transparent",
@@ -362,6 +365,7 @@ function makeDraggable(modal, handle) {
   document.addEventListener('mousemove', drag);
 
   function dragStart(e) {
+    if (window.matchMedia('(max-width: 700px)').matches) return;
     if (e.target.closest('.forecast-modal-btn-action') || e.target.closest('.day-tab-btn')) return;
     initialX = e.clientX - xOffset;
     initialY = e.clientY - yOffset;
@@ -475,11 +479,20 @@ function getOrCreateModal() {
       display: flex;
       justify-content: space-around;
       align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
       background: var(--modal-card-bg);
       border: 1px solid var(--modal-card-border);
       border-radius: 10px;
       padding: 10px 0;
       margin-bottom: 14px;
+    }
+    #fwi-gauge-container,
+    #fopi-gauge-container {
+      width: 330px;
+      max-width: 100%;
+      min-height: 190px;
+      flex: 1 1 320px;
     }
     .day-tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 10px; }
     .day-tab-btn {
@@ -514,6 +527,14 @@ function getOrCreateModal() {
       border: 1px solid var(--modal-card-border);
       margin-bottom: 16px;
     }
+    .forecast-table-scroll {
+      width: 100%;
+      overflow-x: auto;
+      margin-bottom: 16px;
+    }
+    .forecast-table-scroll .forecast-table {
+      margin-bottom: 0;
+    }
     .forecast-table th { background: var(--modal-table-header); color: var(--modal-text); padding: 8px 10px; font-weight: 600; }
     .forecast-table td { padding: 8px 10px; border-bottom: 1px solid var(--modal-card-border); color: var(--modal-table-row); }
     .forecast-table td:first-child { text-align: left; font-weight: 600; color: var(--modal-subtext); }
@@ -530,6 +551,71 @@ function getOrCreateModal() {
     .alert-box.warning { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #d97706; }
     .advisory-list { margin: 0; padding-left: 18px; font-size: 12px; color: var(--modal-subtext); }
     .advisory-list li { margin-bottom: 6px; }
+    @media (max-width: 700px) {
+      .forecast-modal {
+        top: 8px;
+        left: 8px;
+        width: calc(100vw - 16px);
+        max-width: none;
+        max-height: calc(100vh - 16px);
+        transform: none !important;
+        padding: 12px;
+        border-radius: 10px;
+      }
+      .forecast-modal-header {
+        align-items: flex-start;
+        gap: 10px;
+        cursor: default;
+      }
+      .forecast-modal-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        font-size: 13px;
+        line-height: 1.25;
+      }
+      .forecast-modal-title span {
+        white-space: normal;
+      }
+      .modal-actions {
+        flex: 0 0 auto;
+      }
+      .day-tabs {
+        justify-content: flex-start;
+        overflow-x: auto;
+        padding-bottom: 2px;
+      }
+      .day-tab-btn {
+        flex: 0 0 auto;
+        padding: 5px 10px;
+        font-size: 11px;
+      }
+      .gauges-wrapper {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 8px;
+      }
+      #fwi-gauge-container,
+      #fopi-gauge-container {
+        width: 100%;
+        flex-basis: auto;
+      }
+      .forecast-metrics-grid {
+        grid-template-columns: 1fr;
+      }
+      .forecast-table {
+        min-width: 560px;
+      }
+      .advisory-title {
+        align-items: flex-start;
+        font-size: 12px;
+        line-height: 1.25;
+      }
+      .alert-box {
+        font-size: 11px;
+      }
+    }
   `;
   document.head.appendChild(style);
   document.body.appendChild(modalContainer);
@@ -674,42 +760,44 @@ export function renderForecastSummaryModal(data, meta = {}) {
     </div>
 
     <!-- Tableau des Paramètres Météo (Dates exactes) -->
-    <table class="forecast-table">
-      <thead>
-        <tr>
-          <th>Paramètre Météo</th>
-          <th>${label0}</th>
-          <th>${label1}</th>
-          <th>${label2}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><i class="fa-solid fa-temperature-high" style="color: #ef4444;"></i> Température</td>
-          <td><b>${temp[0]} °C</b></td>
-          <td><b>${temp[1]} °C</b></td>
-          <td><b>${temp[2]} °C</b></td>
-        </tr>
-        <tr>
-          <td><i class="fa-solid fa-cloud-showers-heavy" style="color: #0284c7;"></i> Précipitations</td>
-          <td><b>${rain[0]} mm</b></td>
-          <td><b>${rain[1]} mm</b></td>
-          <td><b>${rain[2]} mm</b></td>
-        </tr>
-        <tr>
-          <td><i class="fa-solid fa-droplet" style="color: #06b6d4;"></i> Humidité Relative</td>
-          <td><b>${rh[0]} %</b></td>
-          <td><b>${rh[1]} %</b></td>
-          <td><b>${rh[2]} %</b></td>
-        </tr>
-        <tr>
-          <td><i class="fa-solid fa-wind" style="color: #10b981;"></i> Vitesse du Vent</td>
-          <td><b>${wind[0]} m/s</b></td>
-          <td><b>${wind[1]} m/s</b></td>
-          <td><b>${wind[2]} m/s</b></td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="forecast-table-scroll">
+      <table class="forecast-table">
+        <thead>
+          <tr>
+            <th>Paramètre Météo</th>
+            <th>${label0}</th>
+            <th>${label1}</th>
+            <th>${label2}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><i class="fa-solid fa-temperature-high" style="color: #ef4444;"></i> Température</td>
+            <td><b>${temp[0]} °C</b></td>
+            <td><b>${temp[1]} °C</b></td>
+            <td><b>${temp[2]} °C</b></td>
+          </tr>
+          <tr>
+            <td><i class="fa-solid fa-cloud-showers-heavy" style="color: #0284c7;"></i> Précipitations</td>
+            <td><b>${rain[0]} mm</b></td>
+            <td><b>${rain[1]} mm</b></td>
+            <td><b>${rain[2]} mm</b></td>
+          </tr>
+          <tr>
+            <td><i class="fa-solid fa-droplet" style="color: #06b6d4;"></i> Humidité Relative</td>
+            <td><b>${rh[0]} %</b></td>
+            <td><b>${rh[1]} %</b></td>
+            <td><b>${rh[2]} %</b></td>
+          </tr>
+          <tr>
+            <td><i class="fa-solid fa-wind" style="color: #10b981;"></i> Vitesse du Vent</td>
+            <td><b>${wind[0]} m/s</b></td>
+            <td><b>${wind[1]} m/s</b></td>
+            <td><b>${wind[2]} m/s</b></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <!-- Automated Advisories & Actionable Warnings -->
     <div class="advisory-section">

@@ -30,7 +30,7 @@
     <nav class="header-nav">
       <button class="nav-btn active" data-nav="MON"> Historique </button>
       <button class="nav-btn" data-nav="FOR"> Prevision </button>
-      <button class="nav-btn" data-nav="About">A propos</button>
+      <button class="nav-btn" data-nav="About">À propos</button>
     </nav>
 
 
@@ -100,6 +100,10 @@
       </div>
     </div>
 
+    <button id="drawer-toggle-btn" class="drawer-toggle-btn hidden" title="Afficher le contrôle des couches">
+      <i class="fa-solid fa-sliders"></i>
+    </button>
+
     <!-- Content & Dual Map View Area -->
     <main id="content-area" class="content-area">
 
@@ -127,9 +131,97 @@
 
       <!-- VIEWPORT 2: ABOUT PAGE (HIDDEN BY DEFAULT) -->
       <div id="about-viewport" class="viewport hidden">
-        <section class="about-page" style="padding: 2rem; color: #fff;">
-          <h2>A propos de cette plateforme</h2>
-          <p> Dashboard pour la climatologie : Climatologie du temps et climatologie des feux pour Madagascar. \n Previsions du temps et des indices des feux pour les 3 prochaines jours.</p>
+        <section class="about-page">
+          <div class="about-hero">
+            <h2>À propos de Feux Météo</h2>
+            <p>
+              Feux Météo est une application de suivi météo et feu pour Madagascar.
+              Elle aide à comparer la climatologie, les prévisions des prochains jours
+              et les zones où le risque de feu demande plus d'attention. Elle a été conçue pour les
+              personnes responsables ou gestionnaires des activités liées à la lutte contre les feux à Madagascar,
+              dans les aires protégées ou au sein des comités feux des districts.
+
+            </p>
+          </div>
+
+          <div class="about-grid">
+            <article class="about-panel">
+              <h3>Ce que permet la plateforme</h3>
+              <ul>
+                <li>Visualiser les précipitations, les températures et la climatologie des feux basée sur l'historique des feux.</li>
+                <li>Suivre les prévisions météo sur plusieurs jours.</li>
+                <li>Afficher les indices FWI et FOPI sur la carte.</li>
+                <li>Le plus important, cliquer sur un point ou une zone pour obtenir un résumé local avec les conseils y afférents.</li>
+              </ul>
+            </article>
+
+            <article class="about-panel">
+              <h3>Sources de données</h3>
+              <ul>
+                <li>Prévisions météo : pour le moment, AIFS de l'ECMWF.</li>
+                <li>Végétation : MODIS NDVI, produit 16 jours à 250 m.</li>
+                <li>Feux actifs : NASA FIRMS, détections MODIS/VIIRS.</li>
+                <li>Climatologie : ENACTSv4 Madagascar.</li>
+                <li>Limites administratives et aires protégées.</li>
+              </ul>
+            </article>
+
+            <article class="about-panel about-panel-wide">
+              <h3>Comment sont calculés les indices</h3>
+              <p>
+                Le FWI, ou Fire Weather Index, vient du système canadien de danger
+                d'incendie. Il utilise la température, l'humidité relative, le vent
+                et la pluie journalière pour estimer un niveau de danger lié aux
+                conditions météo.
+              </p>
+              <p>
+                Le FOPI est un indicateur opérationnel de probabilité d'occurrence
+                de feu. Dans cette application, il combine le FWI, l'état de la
+                végétation estimé par le NDVI, et la climatologie mensuelle des feux avec les feux actifs des dernières 24 h.
+
+              </p>
+            </article>
+
+            <article class="about-panel">
+              <h3>Bon usage</h3>
+              <p>
+                La plateforme sert à repérer rapidement les zones à surveiller,
+                préparer les messages de vigilance et appuyer la décision. Les cartes
+                doivent toujours être interprétées avec les observations de terrain et
+                les informations locales.
+              </p>
+            </article>
+
+            <article class="about-panel">
+              <h3>Limites</h3>
+              <ul>
+                <li>Une prévision météo peut changer d'un jour à l'autre.</li>
+                <li>Les satellites ne détectent pas tous les petits feux.</li>
+                <li>La fumée, les nuages ou l'heure de passage peuvent limiter FIRMS.</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="about-references">
+            <h3>Références</h3>
+            <ol>
+              <li>
+                Van Wagner, C. E. (1987). <a href="https://books.google.com/books?id=WPZ56C_Vn4QC" target="_blank" rel="noopener noreferrer">Development and Structure of the Canadian Forest Fire Weather Index System</a>.
+              </li>
+              <li>
+                Wotton, B. M. (2009). <a href="https://doi.org/10.1007/s10651-007-0084-2" target="_blank" rel="noopener noreferrer">Interpreting and using outputs from the Canadian Forest Fire Danger Rating System in research applications</a>.
+              </li>
+              <li>
+                Stocks, B. J. et al. (1989). <a href="https://doi.org/10.5558/tfc65450-6" target="_blank" rel="noopener noreferrer">The Canadian Forest Fire Danger Rating System: An Overview</a>.
+              </li>
+              <li>
+                Preisler, H. K. et al. (2004). <a href="https://doi.org/10.1071/WF02061" target="_blank" rel="noopener noreferrer">Probability based models for estimation of wildfire risk</a>.
+              </li>
+              <li>
+                Francesca Di Giuseppe, (2023). <a href="https://doi.org/10.1088/1748-9326/acd2ee" target="_blank" rel="noopener noreferrer">Accounting for fuel in fire danger forecasts: the fire occurrence probability index (FOPI)</a>.
+              </li>
+            </ol>
+          </div>
         </section>
       </div>
 
